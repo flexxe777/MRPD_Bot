@@ -39,7 +39,7 @@ const client = new Client({
 });
 
 let aktifKadroMsg = null;
-const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir, restartta sıfırlanması güvenlidir.
+const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir
 
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
@@ -200,32 +200,145 @@ client.on('interactionCreate', async (interaction) => {
         const strikeKanal = interaction.client.channels.cache.get(STRIKE_KANAL_ID);
         const ihracKanal = interaction.client.channels.cache.get(IHRAC_KANAL_ID);
 
+        // --- STRIKE KOMUTU ---
         if (interaction.commandName === 'strike') {
             const kisi = interaction.options.getMember('kisi');
+            const targetUser = interaction.options.getUser('kisi');
             const rol = interaction.options.getRole('rol');
             const sebep = interaction.options.getString('sebep');
-            await kisi.roles.add(rol);
-            if (strikeKanal) strikeKanal.send(`⚠️ **${kisi.user.tag}** kişisine **${rol.name}** rolü verildi. Sebep: ${sebep}`);
-            interaction.reply({ content: '✅ Strike loglandı.', ephemeral: true });
+            
+            if (kisi && rol) {
+                await kisi.roles.add(rol).catch(() => {});
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(0xd32f2f)
+                .setDescription(
+                    `### ⚠️ Strike Verildi\n\n` +
+                    `**Kullanıcı:** <@${targetUser.id}>\n` +
+                    `**Yetkili:** <@${interaction.user.id}>\n` +
+                    `**Rol:** <@${rol.id}>\n` +
+                    `**Sebep:** ${sebep}`
+                );
+
+            if (strikeKanal) {
+                await strikeKanal.send({ embeds: [embed] });
+                await interaction.reply({ content: '✅ Strike loglandı.', ephemeral: true });
+            } else {
+                await interaction.reply({ embeds: [embed] });
+            }
         }
+
+        // --- İHRAÇ KOMUTU ---
         if (interaction.commandName === 'ihrac') {
             const kisi = interaction.options.getMember('kisi');
-            await kisi.roles.set([IHRAC_ROL_ID]);
-            if (ihracKanal) ihracKanal.send(`🛑 **${kisi.user.tag}** ihraç edildi.`);
-            interaction.reply({ content: '✅ Kişi ihraç edildi.', ephemeral: true });
+            const targetUser = interaction.options.getUser('kisi');
+            const sebep = interaction.options.getString('sebep');
+
+            if (kisi) {
+                // 1. Sunucu takma adını "İHRAÇ" yap
+                await kisi.setNickname('İHRAÇ').catch(() => {});
+
+                // 2. Bütün rolleri sök ve SADECE İhraç rolünü ver
+                await kisi.roles.set([IHRAC_ROL_ID]).catch(async () => {
+                    const ihracRole = interaction.guild.roles.cache.get(IHRAC_ROL_ID) || 
+                                      interaction.guild.roles.cache.find(r => r.name.toLowerCase().includes('ihraç') || r.name.toLowerCase().includes('ihrac'));
+                    if (ihracRole) {
+                        await kisi.roles.set([ihracRole.id]).catch(() => {});
+                    } else {
+                        await kisi.roles.set([]).catch(() => {});
+                    }
+                });
+            }
+
+            const embed = new EmbedBuilder()
+                .setColor(0xd32f2f)
+                .setDescription(
+                    `### 🛑 Departmandan İhraç\n\n` +
+                    `**İhraç Edilecek Kişi:** <@${targetUser.id}>\n` +
+                    `**Dc ID:** "${targetUser.id}"\n` +
+                    `**Sebep:** "${sebep}"`
+                );
+
+            if (ihracKanal) {
+                await ihracKanal.send({ embeds: [embed] });
+                await interaction.reply({ content: '✅ Personel ihraç edildi.', ephemeral: true });
+            } else {
+                await interaction.reply({ embeds: [embed] });
+            }
         }
+
+        // --- DUYURU GÖNDER KOMUTU ---
+        if (interaction.commandName === 'duyuru-gonder') {
+            await interaction.deferReply({ ephemeral: true });
+
+            const rol = interaction.options.getRole('rol');
+            const baslik = interaction.options.getString('baslik');
+            const mesaj = interaction.options.getString('mesaj');
+
+            const dmEmbed = new EmbedBuilder()
+                .setColor(0x2b2d31)
+                .setDescription(
+                    `📢 # ${baslik}\n\n` +
+                    `# ${mesaj}\n\n` +
+                    `**Gönderen:** ${interaction.member.displayName}\n` +
+                    `**Tarih:** ${formatDate()}`
+                );
+
+            await interaction.guild.members.fetch();
+            const membersWithRole = rol.members;
+
+            let basarili = 0;
+            let basarisiz = 0;
+
+            for (const [id, member] of membersWithRole) {
+                if (member.user.bot) continue;
+                try {
+                    await member.send({ embeds: [dmEmbed] });
+                    basarili++;
+                } catch (e) {
+                    basarisiz++;
+                }
+            }
+
+            await interaction.editReply({ 
+                content: `✅ Duyuru tamamlandı!\n**Başarılı:** ${basarili} kişi | **DM Kapalı/Hata:** ${basarisiz} kişi` 
+            });
+        }
+
+        // --- AKTİF KADRO KOMUTU ---
         if (interaction.commandName === 'aktif-kadro') {
-            const msg = await interaction.reply({ content: '⚙️ Kadro listesi oluşturuluyor...', fetchReply: true });
+            await interaction.deferReply();
+
+            const onDutyUsers = await User.find({ onDuty: true });
+            const embed = new EmbedBuilder()
+                .setColor(0x00ff00)
+                .setTitle('🟢 Aktif Görevdeki Personel');
+
+            if (onDutyUsers.length > 0) {
+                embed.setDescription(onDutyUsers.map(u => `<@${u.userId}> (ID: ${u.fivemId}) - ${formatTime(Date.now() - u.startTime)}`).join('\n'));
+            } else {
+                embed.setDescription('Şu an aktif görevde personel bulunmuyor.');
+            }
+            embed.setFooter({ text: `${onDutyUsers.length} personel aktif görevde • Son güncelleme ${formatDate()}` });
+
+            const msg = await interaction.editReply({ embeds: [embed] });
             aktifKadroMsg = msg;
         }
+
+        // --- TOP MESAİ KOMUTU ---
         if (interaction.commandName === 'top-mesai') {
             const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
             interaction.reply({ content: list.length > 0 ? list.map((u, i) => `${i+1}. <@${u.userId}>: ${formatTime(u.weeklyTime)}`).join('\n') : 'Henüz mesai yok.' });
         }
+
+        // --- HAFTA MESAİ SİL KOMUTU ---
         if (interaction.commandName === 'hafta-mesai-sil') {
             await User.updateMany({}, { weeklyTime: 0 });
             interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
+
+        // --- AKTİF KADRO ÇIKAR KOMUTU ---
         if (interaction.commandName === 'aktif-kadro-cıkar') {
             await User.updateMany({}, { onDuty: false, startTime: null });
             interaction.reply({ content: '✅ Mesaidekiler çıkarıldı.', ephemeral: true });
