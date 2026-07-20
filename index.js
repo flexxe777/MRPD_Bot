@@ -30,4 +30,4 @@ client.once('ready', () => {
 // Buraya kendi bot komutlarını/kodlarını ekleyebilirsin...
 
 // Botu çalıştıran en önemli kısım (Bunu unutmuştuk)
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.TOKEN);
