@@ -39,7 +39,7 @@ const client = new Client({
 });
 
 let aktifKadroMsg = null;
-const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir, restartta sıfırlanması güvenlidir.
+const afkTimeouts = new Map();
 
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
@@ -228,6 +228,7 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.reply({ embeds: [embed] });
             }
         }
+
         // --- İHRAÇ KOMUTU ---
         if (interaction.commandName === 'ihrac') {
             const kisi = interaction.options.getMember('kisi');
@@ -235,13 +236,10 @@ client.on('interactionCreate', async (interaction) => {
             const sebep = interaction.options.getString('sebep');
 
             if (kisi) {
-                // Sunucu ismini İHRAÇ yap
                 await kisi.setNickname('İHRAÇ').catch(() => {});
 
-                // "İhraç" rolünü bul
                 const ihracRole = interaction.guild.roles.cache.get(IHRAC_ROL_ID) || interaction.guild.roles.cache.find(r => r.name.toLowerCase().includes('ihraç') || r.name.toLowerCase().includes('ihrac'));
                 
-                // Bütün rolleri sök ve SADECE İhraç rolünü ver
                 if (ihracRole) {
                     await kisi.roles.set([ihracRole.id]).catch(() => {});
                 } else {
@@ -304,7 +302,7 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- AKTİF KADRO KOMUTU (ESKİ MÜKEMMEL ALTYAPI) ---
+        // --- AKTİF KADRO KOMUTU ---
         if (interaction.commandName === 'aktif-kadro') {
             const onDutyUsers = await User.find({ onDuty: true });
             const embed = new EmbedBuilder()
@@ -318,12 +316,11 @@ client.on('interactionCreate', async (interaction) => {
             }
             embed.setFooter({ text: `${onDutyUsers.length} personel aktif görevde • Son güncelleme ${formatDate()}` });
 
-            // fetchReply: true kullanarak mesajın id'sini aktifKadroMsg'ye atıyoruz (senin kusursuz kodundaki gibi)
             const msg = await interaction.reply({ embeds: [embed], fetchReply: true });
             aktifKadroMsg = msg;
         }
 
-        // --- TOP MESAİ KOMUTU (ESKİ MÜKEMMEL ALTYAPI) ---
+        // --- TOP MESAİ KOMUTU ---
         if (interaction.commandName === 'top-mesai') {
             const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
             
@@ -345,7 +342,7 @@ client.on('interactionCreate', async (interaction) => {
             interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
 
-        // --- AKTİF KADRO ÇIKAR KOMUTU (GÜNCELLENDİ) ---
+        // --- AKTİF KADRO ÇIKAR KOMUTU (GÜNCEL) ---
         if (interaction.commandName === 'aktif-kadro-cıkar') {
             await interaction.deferReply({ ephemeral: true });
 
@@ -370,5 +367,18 @@ client.on('interactionCreate', async (interaction) => {
                 content: `✅ Mesaideki **${activeUsers.length}** personelin süresi hesaplanıp **haftalık/toplam mesailerine eklendi** ve mesaileri sonlandırıldı.` 
             });
         }
+    }
+});
+
+// --- ANTI-CRASH SİSTEMİ ---
+process.on('unhandledRejection', (reason, p) => {
+    console.log('❌ [Anti-Crash] Unhandled Rejection/Catch', reason, p);
+});
+process.on('uncaughtException', (err, origin) => {
+    console.log('❌ [Anti-Crash] Uncaught Exception/Catch', err, origin);
+});
+process.on('uncaughtExceptionMonitor', (err, origin) => {
+    console.log('❌ [Anti-Crash] Uncaught Exception/Catch (Monitor)', err, origin);
+});
 
 client.login(TOKEN);
