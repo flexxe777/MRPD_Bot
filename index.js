@@ -10,11 +10,7 @@ app.listen(port, () => {
   console.log(`Server is listening on port ${port}`);
 });
 
-const { 
-    Client, GatewayIntentBits, EmbedBuilder, ActionRowBuilder, 
-    ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes, 
-    ModalBuilder, TextInputBuilder, TextInputStyle 
-} = require('discord.js');
+const { Client, GatewayIntentBits } = require('discord.js');
 
 const client = new Client({
     intents: [
@@ -26,14 +22,12 @@ const client = new Client({
     ]
 });
 
-const userDB = new Map();
-let aktifKadroMsg = null; // Aktif kadro mesajını tutar
+// Bot hazır olduğunda çalışacak kısım
+client.once('ready', () => {
+    console.log(`${client.user.tag} olarak giriş yapıldı!`);
+});
 
-// --- YARDIMCI FONKSİYONLAR ---
-function formatTime(ms) {
-    let totalSeconds = Math.floor(ms / 1000);
-    let h = Math.floor(totalSeconds / 3600);
-    let m = Math.floor((totalSeconds % 3600) / 60);
-    let s = totalSeconds % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
+// Buraya kendi bot komutlarını/kodlarını ekleyebilirsin...
+
+// Botu çalıştıran en önemli kısım (Bunu unutmuştuk)
+client.login(process.env.DISCORD_TOKEN);
