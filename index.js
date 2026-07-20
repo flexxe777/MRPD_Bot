@@ -1,12 +1,25 @@
-// --- RENDER VE DOSYA SİSTEMİ ---
 const express = require('express');
-const fs = require('fs');
+const mongoose = require('mongoose');
 const app = express();
 const port = process.env.PORT || 3000;
+
 app.get('/', (req, res) => res.send('Bot is running!'));
 app.listen(port, () => console.log(`Server is listening on port ${port}`));
 
-const DB_FILE = './veritabani.json'; 
+// --- MONGOOSE AYARLARI ---
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('✅ MongoDB Veritabanına bağlandık!'))
+  .catch(err => console.error('❌ MongoDB bağlantı hatası:', err));
+
+const userSchema = new mongoose.Schema({
+    userId: { type: String, required: true, unique: true },
+    fivemId: String,
+    onDuty: { type: Boolean, default: false },
+    startTime: { type: Number, default: null },
+    totalTime: { type: Number, default: 0 },
+    weeklyTime: { type: Number, default: 0 }
+});
+const User = mongoose.model('User', userSchema);
 
 // --- DİSCORD.JS ---
 const { 
@@ -25,8 +38,8 @@ const client = new Client({
     ] 
 });
 
-const userDB = new Map(); 
 let aktifKadroMsg = null;
+const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir, restartta sıfırlanması güvenlidir.
 
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
@@ -42,25 +55,6 @@ function formatDate() {
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2, '0')}.${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-// VERİ KAYIT VE YÜKLEME
-function loadDB() {
-    if (fs.existsSync(DB_FILE)) {
-        try {
-            const data = fs.readFileSync(DB_FILE, 'utf8');
-            const entries = JSON.parse(data);
-            entries.forEach(([key, value]) => userDB.set(key, value));
-            console.log('✅ Veritabanı başarıyla yüklendi.');
-        } catch (e) { console.error('Veri yükleme hatası:', e); }
-    }
-}
-
-function saveDB() {
-    try {
-        const data = JSON.stringify(Array.from(userDB.entries()));
-        fs.writeFileSync(DB_FILE, data);
-    } catch (e) { console.error('Veri kaydetme hatası:', e); }
-}
-
 // --- AYARLAR ---
 const TOKEN = process.env.TOKEN;
 const LOG_KANAL_ID = '1522260330502291767';
@@ -68,7 +62,6 @@ const STRIKE_KANAL_ID = '1475505351108591707';
 const IHRAC_KANAL_ID = '1478819151689679039';
 const IHRAC_ROL_ID = '1475505209278075131';
 
-// --- KOMUT KAYDI ---
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
     new SlashCommandBuilder().setName('ihrac').setDescription('Personel ihraç').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
@@ -82,43 +75,44 @@ const commands = [
 const rest = new REST({ version: '10' }).setToken(TOKEN);
 
 client.on('ready', async () => {
-    loadDB(); // Bot açılırken verileri yükle
     console.log(`${client.user.tag} sistemi aktif!`);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
+    // AFK Kontrolü
     setInterval(async () => {
-        userDB.forEach(async (userData, userId) => {
-            if (userData.onDuty && !userData.afkTimeout) {
+        const activeUsers = await User.find({ onDuty: true });
+        for (const userData of activeUsers) {
+            if (!afkTimeouts.has(userData.userId)) {
                 try {
-                    const user = await client.users.fetch(userId);
-                    const embed = new EmbedBuilder().setColor(0xff0000).setTitle('💤 AFK Kontrolü').setDescription('Hala görevde misiniz? 1 dakika içinde yanıt vermezseniz mesainiz bitecek.');
+                    const user = await client.users.fetch(userData.userId);
+                    const embed = new EmbedBuilder().setColor(0xff0000).setTitle('💤 AFK Kontrolü').setDescription('Hala görevde misiniz?');
                     const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('afk_devam').setLabel('Devam Ediyorum').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('afk_bitir').setLabel('Bitir').setStyle(ButtonStyle.Danger)
                     );
-                    await user.send({ embeds: [embed], components: [row] });
+                    const msg = await user.send({ embeds: [embed], components: [row] });
                     
-                    userData.afkTimeout = setTimeout(async () => {
+                    const timeout = setTimeout(async () => {
                         const duration = Date.now() - userData.startTime;
                         userData.totalTime += duration; userData.weeklyTime += duration;
-                        userData.onDuty = false; userData.startTime = null; userData.afkTimeout = null;
-                        const logKanal = client.channels.cache.get(LOG_KANAL_ID);
-                        if(logKanal) logKanal.send(`🔴 <@${userId}> yanıt vermediği için mesaiyi DM üzerinden otomatik sonlandırdı. Süre: ${formatTime(duration)}`);
-                        user.send(`❌ Yanıt vermediğiniz için mesainiz otomatik bitti. Süre: ${formatTime(duration)}`);
-                        saveDB(); // Veriyi kaydet
+                        userData.onDuty = false;
+                        await userData.save();
+                        afkTimeouts.delete(userData.userId);
+                        try { user.send('❌ Yanıt vermediğiniz için mesainiz bitti.'); } catch(e){}
                     }, 60000);
+                    afkTimeouts.set(userData.userId, timeout);
                 } catch (e) { console.error('DM gönderilemedi'); }
             }
-        });
+        }
     }, 2700000);
 
+    // Kadro Güncelleme
     setInterval(async () => {
         if (aktifKadroMsg) {
-            const onDutyUsers = [];
-            userDB.forEach((v, k) => { if(v.onDuty) onDutyUsers.push({id: k, time: v.startTime, fivem: v.fivemId}); });
+            const onDutyUsers = await User.find({ onDuty: true });
             const embed = new EmbedBuilder().setColor(0x00ff00).setTitle('🟢 Aktif Görevdeki Personel');
             if (onDutyUsers.length > 0) {
-                embed.setDescription(onDutyUsers.map(u => `<@${u.id}> (ID: ${u.fivem}) - ${formatTime(Date.now() - u.time)}`).join('\n'));
+                embed.setDescription(onDutyUsers.map(u => `<@${u.userId}> (ID: ${u.fivemId}) - ${formatTime(Date.now() - u.startTime)}`).join('\n'));
             } else {
                 embed.setDescription('Şu an aktif görevde personel bulunmuyor.');
             }
@@ -132,10 +126,10 @@ client.on('messageCreate', async (message) => {
     if (message.content.startsWith('!kayıt')) {
         const id = message.content.split(' ')[1];
         if (!id) return message.reply('❌ ID gir!');
-        userDB.set(message.author.id, { fivemId: id, onDuty: false, startTime: null, totalTime: 0, weeklyTime: 0, afkTimeout: null });
+        await User.findOneAndUpdate({ userId: message.author.id }, { fivemId: id }, { upsert: true, new: true });
         message.reply(`✅ Kaydın yapıldı! ID: ${id}`);
-        saveDB(); // Veriyi kaydet
     }
+    
     if (message.content === '!panel') {
         const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle('Mission Row Police Department — Mesai Yönetim Sistemi')
             .setDescription('MRPD mesai işlemlerinizi aşağıdaki butonlar aracılığıyla hızlıca gerçekleştirebilirsiniz.')
@@ -145,7 +139,7 @@ client.on('messageCreate', async (message) => {
                 { name: '📅 Haftalık Mesai', value: 'Bu hafta yaptığınız toplam mesai süresini görün.' },
                 { name: '📊 Toplam Mesai', value: 'Şu ana kadar yaptığınız tüm mesaileri görün.' },
                 { name: '🔄 FiveM ID Güncelle', value: 'Şehir içi FiveM ID\'nizi güncelleyin.' }
-            ).setFooter({ text: 'MRPD Merkezi Sistemi • Mesai Takip • 2026' });
+            );
 
         const row1 = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('mesai_gir').setLabel('Mesaiye Gir').setStyle(ButtonStyle.Success),
@@ -161,38 +155,34 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+    const logKanal = interaction.client.channels.cache.get(LOG_KANAL_ID);
+    
     if (interaction.isButton()) {
-        const user = userDB.get(interaction.user.id);
-        const logKanal = interaction.client.channels.cache.get(LOG_KANAL_ID);
+        const userDoc = await User.findOne({ userId: interaction.user.id });
 
         if (interaction.customId === 'afk_devam') {
-            if (user && user.afkTimeout) { clearTimeout(user.afkTimeout); user.afkTimeout = null; if(logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye DM üzerinden devam etti.`); interaction.reply({content: '✅ Devam!', ephemeral: true}); }
-        } else if (interaction.customId === 'afk_bitir') {
-            if (user && user.afkTimeout) { 
-                const duration = Date.now() - user.startTime;
-                user.totalTime += duration; user.weeklyTime += duration;
-                clearTimeout(user.afkTimeout); user.afkTimeout = null; user.onDuty = false; 
-                if(logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi DM üzerinden sonlandırdı. Süre: ${formatTime(duration)}`);
-                interaction.reply({content: `🔴 Mesai bitti. Süre: ${formatTime(duration)}`, ephemeral: true}); 
-                saveDB(); // Veriyi kaydet
+            if (afkTimeouts.has(interaction.user.id)) {
+                clearTimeout(afkTimeouts.get(interaction.user.id));
+                afkTimeouts.delete(interaction.user.id);
+                interaction.reply({content: '✅ Devam!', ephemeral: true});
             }
         } else if (interaction.customId === 'mesai_gir') {
-            if (!user) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
-            user.onDuty = true; user.startTime = Date.now();
-            if(logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı. (ID: ${user.fivemId})`);
+            if (!userDoc) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
+            userDoc.onDuty = true; userDoc.startTime = Date.now();
+            await userDoc.save();
+            if(logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı.`);
             interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
-            saveDB(); // Veriyi kaydet
         } else if (interaction.customId === 'mesai_cik') {
-            if (!user || !user.onDuty) return interaction.reply({ content: '❌ Aktif mesain yok!', ephemeral: true });
-            const duration = Date.now() - user.startTime;
-            user.totalTime += duration; user.weeklyTime += duration; user.onDuty = false;
-            if(logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi bitirdi. Süre: ${formatTime(duration)}`);
+            if (!userDoc || !userDoc.onDuty) return interaction.reply({ content: '❌ Aktif mesain yok!', ephemeral: true });
+            const duration = Date.now() - userDoc.startTime;
+            userDoc.totalTime += duration; userDoc.weeklyTime += duration; userDoc.onDuty = false;
+            await userDoc.save();
+            if(logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi bitirdi.`);
             interaction.reply({ content: `✅ Mesain bitti!`, ephemeral: true });
-            saveDB(); // Veriyi kaydet
         } else if (interaction.customId === 'haftalik_mesai') {
-            interaction.reply({ content: `📅 Bu hafta: ${formatTime(user ? user.weeklyTime : 0)}`, ephemeral: true });
+            interaction.reply({ content: `📅 Bu hafta: ${formatTime(userDoc ? userDoc.weeklyTime : 0)}`, ephemeral: true });
         } else if (interaction.customId === 'toplam_mesai') {
-            interaction.reply({ content: `📊 Toplam: ${formatTime(user ? user.totalTime : 0)}`, ephemeral: true });
+            interaction.reply({ content: `📊 Toplam: ${formatTime(userDoc ? userDoc.totalTime : 0)}`, ephemeral: true });
         } else if (interaction.customId === 'id_guncelle') {
             const modal = new ModalBuilder().setCustomId('id_modal').setTitle('FiveM ID Güncelle');
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('new_id').setLabel('Yeni FiveM ID').setStyle(TextInputStyle.Short)));
@@ -202,14 +192,11 @@ client.on('interactionCreate', async (interaction) => {
     
     if (interaction.isModalSubmit() && interaction.customId === 'id_modal') {
         const newId = interaction.fields.getTextInputValue('new_id');
-        const user = userDB.get(interaction.user.id);
-        if (user) user.fivemId = newId;
+        await User.findOneAndUpdate({ userId: interaction.user.id }, { fivemId: newId }, { upsert: true });
         interaction.reply({ content: `✅ Yeni ID: ${newId}`, ephemeral: true });
-        saveDB(); // Veriyi kaydet
     }
 
     if (interaction.isChatInputCommand()) {
-        const logKanal = interaction.client.channels.cache.get(LOG_KANAL_ID);
         const strikeKanal = interaction.client.channels.cache.get(STRIKE_KANAL_ID);
         const ihracKanal = interaction.client.channels.cache.get(IHRAC_KANAL_ID);
 
@@ -218,68 +205,32 @@ client.on('interactionCreate', async (interaction) => {
             const rol = interaction.options.getRole('rol');
             const sebep = interaction.options.getString('sebep');
             await kisi.roles.add(rol);
-            const embed = new EmbedBuilder().setColor(0xff0000).setTitle('⚠️ Strike Verildi')
-                .setDescription(`**Kullanıcı:** ${kisi}\n**Yetkili:** ${interaction.member}\n**Rol:** ${rol}\n**Sebep:** ${sebep}`);
-            if (strikeKanal) strikeKanal.send({ embeds: [embed] });
+            if (strikeKanal) strikeKanal.send(`⚠️ **${kisi.user.tag}** kişisine **${rol.name}** rolü verildi. Sebep: ${sebep}`);
             interaction.reply({ content: '✅ Strike loglandı.', ephemeral: true });
         }
-
         if (interaction.commandName === 'ihrac') {
             const kisi = interaction.options.getMember('kisi');
-            const sebep = interaction.options.getString('sebep');
             await kisi.roles.set([IHRAC_ROL_ID]);
-            await kisi.setNickname('İhraç');
-            const embed = new EmbedBuilder().setColor(0xff0000).setTitle('🛑 Departmandan İhraç')
-                .setDescription(`**İhraç Edilen:** ${kisi}\n**Sebep:** "${sebep}"`);
-            if (ihracKanal) ihracKanal.send({ embeds: [embed] });
+            if (ihracKanal) ihracKanal.send(`🛑 **${kisi.user.tag}** ihraç edildi.`);
             interaction.reply({ content: '✅ Kişi ihraç edildi.', ephemeral: true });
         }
-
-        if (interaction.commandName === 'duyuru-gonder') {
-            await interaction.deferReply({ ephemeral: true });
-            const rol = interaction.options.getRole('rol');
-            const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle(`📢 ${interaction.options.getString('baslik')}`)
-                .setDescription(`${interaction.options.getString('mesaj')}\n\n**Gönderen:** ${interaction.member.displayName}\n**Tarih:** ${formatDate()}`);
-            let g = 0, h = 0;
-            for (const member of rol.members.values()) {
-                try { await member.send({ embeds: [embed] }); g++; } catch (e) { h++; }
-            }
-            await interaction.editReply({ content: `✅ Duyuru tamamlandı! Başarılı: ${g}, Hata: ${h}` });
-        }
-
         if (interaction.commandName === 'aktif-kadro') {
             const msg = await interaction.reply({ content: '⚙️ Kadro listesi oluşturuluyor...', fetchReply: true });
             aktifKadroMsg = msg;
-            const onDutyUsers = [];
-            userDB.forEach((v, k) => { if(v.onDuty) onDutyUsers.push({id: k, time: v.startTime, fivem: v.fivemId}); });
-            const embed = new EmbedBuilder().setColor(0x00ff00).setTitle('🟢 Aktif Görevdeki Personel');
-            if (onDutyUsers.length > 0) embed.setDescription(onDutyUsers.map(u => `<@${u.id}> (ID: ${u.fivem}) - ${formatTime(Date.now() - u.time)}`).join('\n'));
-            else embed.setDescription('Şu an aktif görevde personel bulunmuyor.');
-            embed.setFooter({ text: `${onDutyUsers.length} personel aktif görevde • Son güncelleme ${formatDate()}` });
-            msg.edit({ content: null, embeds: [embed] });
         }
-
         if (interaction.commandName === 'top-mesai') {
-            const list = [];
-            userDB.forEach((v, k) => { if(v.weeklyTime > 0) list.push({id: k, time: v.weeklyTime}); });
-            list.sort((a,b) => b.time - a.time);
-            const embed = new EmbedBuilder().setColor(0xffff00).setTitle('🏆 Haftalık Mesai Liderleri');
-            embed.setDescription(list.length > 0 ? list.map((u, i) => `${i+1}. <@${u.id}>: **${formatTime(u.time)}**`).join('\n') : 'Henüz mesai yapan yok.');
-            interaction.reply({ embeds: [embed] });
+            const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
+            interaction.reply({ content: list.length > 0 ? list.map((u, i) => `${i+1}. <@${u.userId}>: ${formatTime(u.weeklyTime)}`).join('\n') : 'Henüz mesai yok.' });
         }
-
         if (interaction.commandName === 'hafta-mesai-sil') {
-            userDB.forEach(v => v.weeklyTime = 0);
-            interaction.reply({ content: '✅ Haftalık mesailer sıfırlandı.', ephemeral: true });
-            saveDB(); // Veriyi kaydet
+            await User.updateMany({}, { weeklyTime: 0 });
+            interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
-
         if (interaction.commandName === 'aktif-kadro-cıkar') {
-            userDB.forEach(v => { v.onDuty = false; v.startTime = null; });
-            interaction.reply({ content: '✅ Mesaideki herkes zorunlu olarak çıkarıldı.', ephemeral: true });
-            saveDB(); // Veriyi kaydet
+            await User.updateMany({}, { onDuty: false, startTime: null });
+            interaction.reply({ content: '✅ Mesaidekiler çıkarıldı.', ephemeral: true });
         }
     }
 });
 
-client.login(process.env.TOKEN);
+client.login(TOKEN);
