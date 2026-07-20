@@ -217,7 +217,7 @@ client.on('interactionCreate', async (interaction) => {
                     `### ⚠️ Strike Verildi\n\n` +
                     `**Kullanıcı:** <@${targetUser.id}>\n` +
                     `**Yetkili:** <@${interaction.user.id}>\n` +
-                    `**Rol:** <@${rol.id}>\n` +
+                    `**Rol:** <@&${rol.id}>\n` +
                     `**Sebep:** ${sebep}`
                 );
 
@@ -228,7 +228,6 @@ client.on('interactionCreate', async (interaction) => {
                 await interaction.reply({ embeds: [embed] });
             }
         }
-
         // --- İHRAÇ KOMUTU ---
         if (interaction.commandName === 'ihrac') {
             const kisi = interaction.options.getMember('kisi');
