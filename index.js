@@ -345,12 +345,30 @@ client.on('interactionCreate', async (interaction) => {
             interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
 
-        // --- AKTİF KADRO ÇIKAR KOMUTU ---
+        // --- AKTİF KADRO ÇIKAR KOMUTU (GÜNCELLENDİ) ---
         if (interaction.commandName === 'aktif-kadro-cıkar') {
-            await User.updateMany({}, { onDuty: false, startTime: null });
-            interaction.reply({ content: '✅ Mesaidekiler çıkarıldı.', ephemeral: true });
+            await interaction.deferReply({ ephemeral: true });
+
+            const activeUsers = await User.find({ onDuty: true });
+
+            if (activeUsers.length === 0) {
+                return interaction.editReply({ content: '❌ Şu an aktif mesaide kimse bulunmuyor.' });
+            }
+
+            for (const userDoc of activeUsers) {
+                if (userDoc.startTime) {
+                    const duration = Date.now() - userDoc.startTime;
+                    userDoc.totalTime += duration;
+                    userDoc.weeklyTime += duration;
+                }
+                userDoc.onDuty = false;
+                userDoc.startTime = null;
+                await userDoc.save();
+            }
+
+            await interaction.editReply({ 
+                content: `✅ Mesaideki **${activeUsers.length}** personelin süresi hesaplanıp **haftalık/toplam mesailerine eklendi** ve mesaileri sonlandırıldı.` 
+            });
         }
-    }
-});
 
 client.login(TOKEN);
