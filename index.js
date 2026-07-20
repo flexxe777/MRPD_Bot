@@ -81,11 +81,13 @@ client.on('ready', async () => {
     // AFK Kontrolü
     setInterval(async () => {
         const activeUsers = await User.find({ onDuty: true });
+        const logKanal = client.channels.cache.get(LOG_KANAL_ID);
+        
         for (const userData of activeUsers) {
             if (!afkTimeouts.has(userData.userId)) {
                 try {
                     const user = await client.users.fetch(userData.userId);
-                    const embed = new EmbedBuilder().setColor(0xff0000).setTitle('💤 AFK Kontrolü').setDescription('Hala görevde misiniz?');
+                    const embed = new EmbedBuilder().setColor(0xff0000).setTitle('💤 AFK Kontrolü').setDescription('Hala görevde misiniz? (10 dakika içinde yanıt vermezseniz mesainiz kapanır.)');
                     const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('afk_devam').setLabel('Devam Ediyorum').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('afk_bitir').setLabel('Bitir').setStyle(ButtonStyle.Danger)
@@ -93,13 +95,23 @@ client.on('ready', async () => {
                     const msg = await user.send({ embeds: [embed], components: [row] });
                     
                     const timeout = setTimeout(async () => {
-                        const duration = Date.now() - userData.startTime;
-                        userData.totalTime += duration; userData.weeklyTime += duration;
-                        userData.onDuty = false;
-                        await userData.save();
+                        const freshUser = await User.findOne({ userId: userData.userId });
+                        if (freshUser && freshUser.onDuty) {
+                            const duration = Date.now() - freshUser.startTime;
+                            freshUser.totalTime += duration; 
+                            freshUser.weeklyTime += duration;
+                            freshUser.onDuty = false;
+                            freshUser.startTime = null;
+                            await freshUser.save();
+                            
+                            if (logKanal) {
+                                logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne 10 dakika boyunca yanıt vermediği için mesaisi otomatik sonlandırıldı.`);
+                            }
+                            
+                            try { user.send('❌ 10 dakika yanıt vermediğiniz için mesainiz otomatik bitti.'); } catch(e){}
+                        }
                         afkTimeouts.delete(userData.userId);
-                        try { user.send('❌ Yanıt vermediğiniz için mesainiz bitti.'); } catch(e){}
-                    }, 60000);
+                    }, 600000); // 10 Dakika süresi (600000 ms)
                     afkTimeouts.set(userData.userId, timeout);
                 } catch (e) { console.error('DM gönderilemedi'); }
             }
@@ -164,7 +176,25 @@ client.on('interactionCreate', async (interaction) => {
             if (afkTimeouts.has(interaction.user.id)) {
                 clearTimeout(afkTimeouts.get(interaction.user.id));
                 afkTimeouts.delete(interaction.user.id);
-                interaction.reply({content: '✅ Devam!', ephemeral: true});
+                if (logKanal) logKanal.send(`💤 <@${interaction.user.id}> AFK kontrolünü onayladı, mesaiye devam ediyor.`);
+                interaction.reply({content: '✅ Mesaiye devam ediyorsunuz!', ephemeral: true});
+            }
+        } else if (interaction.customId === 'afk_bitir') {
+            if (afkTimeouts.has(interaction.user.id)) {
+                clearTimeout(afkTimeouts.get(interaction.user.id));
+                afkTimeouts.delete(interaction.user.id);
+            }
+            if (userDoc && userDoc.onDuty) {
+                const duration = Date.now() - userDoc.startTime;
+                userDoc.totalTime += duration; 
+                userDoc.weeklyTime += duration; 
+                userDoc.onDuty = false;
+                userDoc.startTime = null;
+                await userDoc.save();
+                if (logKanal) logKanal.send(`🔴 <@${interaction.user.id}> DM üzerinden mesaisini bitirdi.`);
+                interaction.reply({ content: '🔴 Mesainiz DM üzerinden sonlandırıldı.', ephemeral: true });
+            } else {
+                interaction.reply({ content: '❌ Zaten aktif mesainiz bulunmuyor.', ephemeral: true });
             }
         } else if (interaction.customId === 'mesai_gir') {
             if (!userDoc) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
