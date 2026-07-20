@@ -39,7 +39,7 @@ const client = new Client({
 });
 
 let aktifKadroMsg = null;
-const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir
+const afkTimeouts = new Map(); // AFK timerlar RAM'de tutulabilir, restartta sıfırlanması güvenlidir.
 
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
@@ -106,7 +106,7 @@ client.on('ready', async () => {
         }
     }, 2700000);
 
-    // Kadro Güncelleme
+    // Kadro Güncelleme (5 Dakikada Bir)
     setInterval(async () => {
         if (aktifKadroMsg) {
             const onDutyUsers = await User.find({ onDuty: true });
@@ -236,19 +236,18 @@ client.on('interactionCreate', async (interaction) => {
             const sebep = interaction.options.getString('sebep');
 
             if (kisi) {
-                // 1. Sunucu takma adını "İHRAÇ" yap
+                // Sunucu ismini İHRAÇ yap
                 await kisi.setNickname('İHRAÇ').catch(() => {});
 
-                // 2. Bütün rolleri sök ve SADECE İhraç rolünü ver
-                await kisi.roles.set([IHRAC_ROL_ID]).catch(async () => {
-                    const ihracRole = interaction.guild.roles.cache.get(IHRAC_ROL_ID) || 
-                                      interaction.guild.roles.cache.find(r => r.name.toLowerCase().includes('ihraç') || r.name.toLowerCase().includes('ihrac'));
-                    if (ihracRole) {
-                        await kisi.roles.set([ihracRole.id]).catch(() => {});
-                    } else {
-                        await kisi.roles.set([]).catch(() => {});
-                    }
-                });
+                // "İhraç" rolünü bul
+                const ihracRole = interaction.guild.roles.cache.get(IHRAC_ROL_ID) || interaction.guild.roles.cache.find(r => r.name.toLowerCase().includes('ihraç') || r.name.toLowerCase().includes('ihrac'));
+                
+                // Bütün rolleri sök ve SADECE İhraç rolünü ver
+                if (ihracRole) {
+                    await kisi.roles.set([ihracRole.id]).catch(() => {});
+                } else {
+                    await kisi.roles.set([]).catch(() => {});
+                }
             }
 
             const embed = new EmbedBuilder()
@@ -306,10 +305,8 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- AKTİF KADRO KOMUTU ---
+        // --- AKTİF KADRO KOMUTU (ESKİ MÜKEMMEL ALTYAPI) ---
         if (interaction.commandName === 'aktif-kadro') {
-            await interaction.deferReply();
-
             const onDutyUsers = await User.find({ onDuty: true });
             const embed = new EmbedBuilder()
                 .setColor(0x00ff00)
@@ -322,14 +319,25 @@ client.on('interactionCreate', async (interaction) => {
             }
             embed.setFooter({ text: `${onDutyUsers.length} personel aktif görevde • Son güncelleme ${formatDate()}` });
 
-            const msg = await interaction.editReply({ embeds: [embed] });
+            // fetchReply: true kullanarak mesajın id'sini aktifKadroMsg'ye atıyoruz (senin kusursuz kodundaki gibi)
+            const msg = await interaction.reply({ embeds: [embed], fetchReply: true });
             aktifKadroMsg = msg;
         }
 
-        // --- TOP MESAİ KOMUTU ---
+        // --- TOP MESAİ KOMUTU (ESKİ MÜKEMMEL ALTYAPI) ---
         if (interaction.commandName === 'top-mesai') {
             const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
-            interaction.reply({ content: list.length > 0 ? list.map((u, i) => `${i+1}. <@${u.userId}>: ${formatTime(u.weeklyTime)}`).join('\n') : 'Henüz mesai yok.' });
+            
+            if (list.length > 0) {
+                const description = list.map((u, i) => `**${i+1}.** <@${u.userId}> ➔ **${formatTime(u.weeklyTime)}**`).join('\n');
+                const embed = new EmbedBuilder()
+                    .setColor(0x3498db)
+                    .setTitle('🏆 Haftalık Mesai Liderlik Tablosu')
+                    .setDescription(description);
+                await interaction.reply({ embeds: [embed] });
+            } else {
+                await interaction.reply({ content: 'Henüz mesai yapan personel bulunmuyor.' });
+            }
         }
 
         // --- HAFTA MESAİ SİL KOMUTU ---
