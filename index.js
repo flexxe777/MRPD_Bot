@@ -257,10 +257,10 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!izinpanel') {
         const embed = new EmbedBuilder()
             .setColor(0x2b2d31)
-            .setTitle('🚓 Davis County Sheriff\'s Office — İzin Sistemi')
+            .setTitle('🚓 Davis County Sheriff\'s Office — İzin Sistemi') // <-- Güncellenen başlık
             .setDescription(`🏖️ **İzin & Mazeret Paneli**\n\nAşağıdaki butonları kullanarak izin işlemlerinizi gerçekleştirebilirsiniz.\n\n👥 **Şu An İzinli Olanlar — Yükleniyor...**`)
             .setFooter({ text: `Son güncelleme: ${formatDate()}` });
-
+        // ...
         const row = new ActionRowBuilder().addComponents(
             new ButtonBuilder().setCustomId('btn_izin_talep').setLabel('📝 İzin Talebi Oluştur').setStyle(ButtonStyle.Primary),
             new ButtonBuilder().setCustomId('btn_saatlik_mazeret').setLabel('⏳ Saatlik Mazeret').setStyle(ButtonStyle.Secondary),
