@@ -244,7 +244,14 @@ client.on('interactionCreate', async (interaction) => {
         // KOMUT KULLANIM LOG SİSTEMİ
         const komutLogKanal = interaction.client.channels.cache.get(KOMUT_LOG_KANAL_ID);
         if (komutLogKanal) {
-            const paramsList = interaction.options.data.map(opt => `**${opt.name}:** ${opt.value}`).join(' | ');
+            const paramsList = interaction.options.data.map(opt => {
+                // Discord API option tipleri: 6 = User, 7 = Channel, 8 = Role
+                if (opt.type === 6) return `**${opt.name}:** <@${opt.value}>`;
+                if (opt.type === 8) return `**${opt.name}:** <@&${opt.value}>`;
+                if (opt.type === 7) return `**${opt.name}:** <#${opt.value}>`;
+                return `**${opt.name}:** ${opt.value}`;
+            }).join(' | ');
+
             const cmdLogEmbed = new EmbedBuilder()
                 .setColor(0x2b2d31)
                 .setTitle('🛠️ Slash Komut Kullanıldı')
