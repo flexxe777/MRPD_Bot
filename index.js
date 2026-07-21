@@ -188,28 +188,38 @@ client.on('ready', async () => {
             if (!afkTimeouts.has(userData.userId)) {
                 try {
                     const user = await client.users.fetch(userData.userId);
-                    const embed = new EmbedBuilder().setColor(0xff0000).setTitle('💤 AFK Kontrolü').setDescription('Hala görevde misiniz? (10 dakika içinde yanıt vermezseniz mesainiz kapanır.)');
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle('💤 AFK Kontrolü')
+                        .setDescription('Hala görevde misiniz? (10 dakika içinde yanıt vermezseniz mesainiz kapanır.)');
+                    
                     const row = new ActionRowBuilder().addComponents(
                         new ButtonBuilder().setCustomId('afk_devam').setLabel('Devam Ediyorum').setStyle(ButtonStyle.Success),
                         new ButtonBuilder().setCustomId('afk_bitir').setLabel('Bitir').setStyle(ButtonStyle.Danger)
                     );
+                    
                     await user.send({ embeds: [embed], components: [row] });
                     
+                    // Cevap vermek için tanınan 10 dakikalık süre (600000 ms)
                     const timeout = setTimeout(async () => {
                         const freshUser = await User.findOne({ userId: userData.userId });
                         if (freshUser && freshUser.onDuty) {
                             const duration = Date.now() - freshUser.startTime;
-                            freshUser.totalTime += duration; freshUser.weeklyTime += duration;
-                            freshUser.onDuty = false; freshUser.startTime = null; await freshUser.save();
+                            freshUser.totalTime += duration; 
+                            freshUser.weeklyTime += duration;
+                            freshUser.onDuty = false; 
+                            freshUser.startTime = null; 
+                            await freshUser.save();
                             if (logKanal) logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne yanıt vermediği için mesaisi kaydedilerek otomatik sonlandırıldı.`);
                         }
                         afkTimeouts.delete(userData.userId);
-                    }, 600000);
+                    }, 600000); 
+                    
                     afkTimeouts.set(userData.userId, timeout);
                 } catch (e) {}
             }
         }
-    }, 2700000);
+    }, 2700000); // <-- SİSTEMİN 45 DAKİKADA BİR ÇALIŞMASINI SAĞLAYAN KISIM (45 * 60 * 1000 milisaniye)
 
     // Kadro Güncelleme
     setInterval(async () => {
