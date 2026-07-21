@@ -56,7 +56,7 @@ function formatTime(ms) {
 }
 
 function formatDate() {
-    const d = new Date(Date.now() + 3 * 3600000); // TR Saati Görüntüleme
+    const d = new Date(Date.now() + 3 * 3600000); // TR Saati
     return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth()+1).padStart(2, '0')}.${d.getUTCFullYear()} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
@@ -120,11 +120,11 @@ const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || '1528933597896114368'
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
     new SlashCommandBuilder().setName('ihrac').setDescription('Personel ihraç').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
-    new SlashCommandBuilder().setName('duyuru-gonder').setDescription('Duyuru at').addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('baslik').setDescription('Başlık').setRequired(true)).addStringOption(o=>o.setName('mesaj').setDescription('İçerik').setRequired(true)),
+    new SlashCommandBuilder().setName('duyuru-gonder').setDescription('Belirli bir role DM olarak duyuru atar.').addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('baslik').setDescription('Başlık').setRequired(true)).addStringOption(o=>o.setName('mesaj').setDescription('İçerik').setRequired(true)),
     new SlashCommandBuilder().setName('aktif-kadro').setDescription('Aktif kadro listesini başlatır.'),
     new SlashCommandBuilder().setName('top-mesai').setDescription('Haftalık mesai liderlik tablosu.'),
     new SlashCommandBuilder().setName('hafta-mesai-sil').setDescription('Tüm haftalık mesaileri sıfırlar.'),
-    new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesi mesai dışı bırakır.'),
+    new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesin sürelerini kaydedip mesailerini bitirir.'),
     new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Saat').setRequired(true)),
     new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Saat').setRequired(true)),
     new SlashCommandBuilder().setName('haftalik-mesai-bilgi').setDescription('Haftalık mesai bilgisi').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)),
@@ -200,7 +200,7 @@ client.on('ready', async () => {
                             const duration = Date.now() - freshUser.startTime;
                             freshUser.totalTime += duration; freshUser.weeklyTime += duration;
                             freshUser.onDuty = false; freshUser.startTime = null; await freshUser.save();
-                            if (logKanal) logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne yanıt vermediği için mesaisi otomatik sonlandırıldı.`);
+                            if (logKanal) logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne yanıt vermediği için mesaisi kaydedilerek otomatik sonlandırıldı.`);
                         }
                         afkTimeouts.delete(userData.userId);
                     }, 600000);
@@ -339,8 +339,31 @@ client.on('interactionCreate', async (interaction) => {
                 .setFooter({ text: `Yetkili: ${interaction.user.tag}` })
                 .setTimestamp();
 
-            await interaction.channel.send({ content: `${rol}`, embeds: [embed] });
-            return interaction.reply({ content: '✅ Duyuru başarıyla gönderildi.', ephemeral: true });
+            await interaction.reply({ content: '⏳ Duyuru üyelere DM olarak gönderiliyor, lütfen bekleyin...', ephemeral: true });
+
+            await interaction.guild.members.fetch().catch(() => {});
+            const targetMembers = rol.members.filter(m => !m.user.bot);
+            
+            let basarili = 0;
+            let basarisiz = 0;
+
+            for (const [memberId, member] of targetMembers) {
+                try {
+                    await member.send({ 
+                        content: `**${interaction.guild.name}** sunucusundan bir duyurunuz var:`, 
+                        embeds: [embed] 
+                    });
+                    basarili++;
+                } catch (error) {
+                    basarisiz++;
+                }
+            }
+
+            await interaction.channel.send({ content: `${rol} rolündeki üyelere duyuru iletildi.`, embeds: [embed] });
+
+            return interaction.editReply({ 
+                content: `✅ Duyuru işlemi tamamlandı.\n📥 Başarıyla iletilen: **${basarili}** üye\n❌ DM'i kapalı olan/Ulaşılamayan: **${basarisiz}** üye` 
+            });
         }
 
         if (commandName === 'aktif-kadro') {
@@ -378,8 +401,25 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (commandName === 'aktif-kadro-cıkar') {
-            await User.updateMany({ onDuty: true }, { onDuty: false, startTime: null });
-            return interaction.reply({ content: '✅ Mesaideki herkes mesai dışı bırakıldı.', ephemeral: true });
+            await interaction.reply({ content: '⏳ Mesaideki personellerin süreleri hesaplanıp kaydediliyor...', ephemeral: true });
+            
+            const activeUsers = await User.find({ onDuty: true });
+            let count = 0;
+            const now = Date.now();
+
+            for (const u of activeUsers) {
+                if (u.startTime) {
+                    const duration = now - u.startTime;
+                    u.totalTime += duration;
+                    u.weeklyTime += duration;
+                }
+                u.onDuty = false;
+                u.startTime = null;
+                await u.save();
+                count++;
+            }
+
+            return interaction.editReply({ content: `✅ İşlem tamam! **${count}** kişinin süresi hesaplanıp profillerine eklendi ve mesaileri kapatıldı.` });
         }
 
         if (commandName === 'mesai-ekle') {
