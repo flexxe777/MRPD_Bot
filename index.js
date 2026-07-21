@@ -69,7 +69,9 @@ const commands = [
     new SlashCommandBuilder().setName('aktif-kadro').setDescription('Aktif kadro listesini başlatır.'),
     new SlashCommandBuilder().setName('top-mesai').setDescription('Haftalık mesai liderlik tablosu.'),
     new SlashCommandBuilder().setName('hafta-mesai-sil').setDescription('Tüm haftalık mesaileri sıfırlar.'),
-    new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesi mesai dışı bırakır.')
+    new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesi mesai dışı bırakır.'),
+    new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele belirtilen saat kadar mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Eklenecek saat (Örn: 2 veya 1.5)').setRequired(true)),
+    new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden belirtilen saat kadar mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Silinecek saat (Örn: 2 veya 1.5)').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -396,6 +398,43 @@ client.on('interactionCreate', async (interaction) => {
             await interaction.editReply({ 
                 content: `✅ Mesaideki **${activeUsers.length}** personelin süresi hesaplanıp **haftalık/toplam mesailerine eklendi** ve mesaileri sonlandırıldı.` 
             });
+        }
+
+        // --- MESAİ EKLE KOMUTU ---
+        if (interaction.commandName === 'mesai-ekle') {
+            const targetUser = interaction.options.getUser('kisi');
+            const saat = interaction.options.getNumber('saat');
+            const msToAdd = saat * 3600000; // Saat -> Milisaniye (1 saat = 60*60*1000 ms)
+
+            let userDoc = await User.findOne({ userId: targetUser.id });
+            if (!userDoc) {
+                return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı. Önce \`!kayıt <ID>\` yapması gerekiyor.`, ephemeral: true });
+            }
+
+            userDoc.totalTime += msToAdd;
+            userDoc.weeklyTime += msToAdd;
+            await userDoc.save();
+
+            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personele başarıyla **${saat} saat** mesai eklendi.`, ephemeral: true });
+        }
+
+        // --- MESAİ SİL KOMUTU ---
+        if (interaction.commandName === 'mesai-sil') {
+            const targetUser = interaction.options.getUser('kisi');
+            const saat = interaction.options.getNumber('saat');
+            const msToRemove = saat * 3600000; // Saat -> Milisaniye
+
+            let userDoc = await User.findOne({ userId: targetUser.id });
+            if (!userDoc) {
+                return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
+            }
+
+            // Sürenin 0'ın altına inmemesini garantiliyoruz
+            userDoc.totalTime = Math.max(0, userDoc.totalTime - msToRemove);
+            userDoc.weeklyTime = Math.max(0, userDoc.weeklyTime - msToRemove);
+            await userDoc.save();
+
+            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personelden başarıyla **${saat} saat** mesai silindi.`, ephemeral: true });
         }
     }
 });
