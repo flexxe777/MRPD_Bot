@@ -18,7 +18,8 @@ const userSchema = new mongoose.Schema({
     startTime: { type: Number, default: null },
     totalTime: { type: Number, default: 0 },
     weeklyTime: { type: Number, default: 0 },
-    leaveUntil: { type: Number, default: null } // YENİ: İzin bitiş süresi
+    leaveUntil: { type: Number, default: null }, 
+    leaveText: { type: String, default: null } // YENİ: Panelde gözükecek izin metni (Tarih/Saat)
 });
 const User = mongoose.model('User', userSchema);
 
@@ -40,12 +41,12 @@ const client = new Client({
 });
 
 let aktifKadroMsg = null;
+let izinPanelMsg = null; // YENİ: İzin paneli mesajını hafızada tutar
 const afkTimeouts = new Map();
 
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
     let totalSeconds = Math.floor(ms / 1000);
-    // Eksi değerler için düzenleme
     let isNegative = totalSeconds < 0;
     totalSeconds = Math.abs(totalSeconds);
     
@@ -60,19 +61,47 @@ function formatDate() {
     return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2, '0')}.${d.getFullYear()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+// İzin panelini güncelleyen fonksiyon
+async function updateIzinPanel() {
+    if (!izinPanelMsg) return;
+    try {
+        const izinliler = await User.find({ leaveUntil: { $ne: null } });
+        let listText = '';
+        
+        for (const u of izinliler) {
+            try {
+                const member = await client.users.fetch(u.userId);
+                const name = member.username;
+                const fId = u.fivemId || 'ID-Yok';
+                const text = u.leaveText || 'Belirtilmedi';
+                listText += `▶ ${fId} ${name} - ${text}\n`;
+            } catch(e) {}
+        }
+        
+        if (listText === '') listText = 'Şu an izinde personel bulunmuyor.';
+        
+        const embed = new EmbedBuilder()
+            .setColor(0x2b2d31)
+            .setTitle('🚓 Mission Row Police Department — İzin Sistemi')
+            .setDescription(`🏖️ **İzin & Mazeret Paneli**\n\nAşağıdaki butonları kullanarak izin işlemlerinizi gerçekleştirebilirsiniz.\n\n📝 **İzin Talebi Oluştur**\nTarih aralığı ve mazeret bilgilerinizle talebinizi gönderin.\n\n⏳ **Saatlik Mazeret**\nSadece bugünü kapsayan saatlik mazeretlerinizi bildirin.\n\n✅ **Onay Süreci**\nTalebiniz yöneticiler tarafından onaylandığında **İzinli Memur** rolü atanır.\n\n⏰ **Süre Takibi**\nİzin süreniz dolduğunda rol **otomatik** olarak kaldırılır.\n\n🔄 **Erken Dönüş**\nErken dönerseniz **İznimi Bitir** butonuna tıklayarak izninizi kapatın.\n\n👥 **Şu An İzinli Olanlar — ${izinliler.length} personel**\n${listText}`)
+            .setFooter({ text: `${izinliler.length} personel izinde • Son güncelleme: ${formatDate()}` });
+
+        await izinPanelMsg.edit({ embeds: [embed] }).catch(() => {});
+    } catch(e) { console.error('Panel guncelleme hatasi:', e); }
+}
+
 // --- AYARLAR ---
 const TOKEN = process.env.TOKEN;
 const LOG_KANAL_ID = '1522260330502291767';
 const STRIKE_KANAL_ID = '1475505351108591707';
 const IHRAC_KANAL_ID = '1478819151689679039';
 const IHRAC_ROL_ID = '1475505209278075131';
-const KOMUT_LOG_KANAL_ID = '1528929952412733480'; 
+const KOMUT_LOG_KANAL_ID = 'BURAYA_KOMUT_LOG_KANALI_IDSINI_GIRIN'; 
 
-// --- YENİ: İZİN SİSTEMİ AYARLARI ---
-const SUNUCU_ID = '1224108385771716749'; // Botun işlem yapacağı ana sunucu ID
-const YETKILI_ROL_ID = '1528933720969580634'; // İzinleri onaylayacak kişilerin rol ID'si (Buna DM gider)
-const IZINLI_ROL_ID = '1525600296951222323'; // İzni onaylanana verilecek rol ID
-const IZIN_LOG_KANAL_ID = '1528933597896114368'; // İzin bildirimlerinin düşeceği log kanalı
+const SUNUCU_ID = 'BURAYA_SUNUCU_IDSINI_GIRIN'; 
+const YETKILI_ROL_ID = 'BURAYA_ONAYLAYACAK_YETKILI_ROL_ID_GIRIN'; 
+const IZINLI_ROL_ID = 'BURAYA_IZINLI_ROL_ID_GIRIN'; 
+const IZIN_LOG_KANAL_ID = 'BURAYA_IZIN_LOG_KANAL_ID_GIRIN'; 
 
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
@@ -85,9 +114,7 @@ const commands = [
     new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele belirtilen saat kadar mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Eklenecek saat (Örn: 2 veya 1.5)').setRequired(true)),
     new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden belirtilen saat kadar mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Silinecek saat (Örn: 2 veya 1.5)').setRequired(true)),
     new SlashCommandBuilder().setName('haftalik-mesai-bilgi').setDescription('Belirtilen kişinin haftalık mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true)),
-    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Belirtilen kişinin toplam mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true)),
-    // YENİ KOMUT: İZİN SİSTEMİ
-    new SlashCommandBuilder().setName('izin-al').setDescription('Departmandan izin talep edersiniz.').addNumberOption(o=>o.setName('gun').setDescription('Kaç gün izin istiyorsunuz?').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('İzin sebebi').setRequired(true))
+    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Belirtilen kişinin toplam mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -96,7 +123,7 @@ client.on('ready', async () => {
     console.log(`${client.user.tag} sistemi aktif!`);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 
-    // YENİ: İzin Süresi Dolanları Kontrol Eden Sistem (Her 1 dakikada bir kontrol eder)
+    // İzin Süresi Dolanları Kontrol Eden Sistem (Her 1 dakikada bir)
     setInterval(async () => {
         const expiredUsers = await User.find({ leaveUntil: { $lt: Date.now(), $ne: null } });
         if(expiredUsers.length > 0) {
@@ -112,16 +139,18 @@ client.on('ready', async () => {
                 }
                 
                 u.leaveUntil = null;
+                u.leaveText = null;
                 await u.save();
 
                 if(izinLogKanal) {
                     izinLogKanal.send(`⏰ <@${u.userId}> adlı personelin izni sona erdi. Üzerindeki izinli rolü otomatik alındı.`);
                 }
             }
+            updateIzinPanel(); // Listeyi güncelle
         }
     }, 60000);
 
-    // AFK Kontrolü
+    // AFK Kontrolü (Aynı)
     setInterval(async () => {
         const activeUsers = await User.find({ onDuty: true });
         const logKanal = client.channels.cache.get(LOG_KANAL_ID);
@@ -147,21 +176,18 @@ client.on('ready', async () => {
                             freshUser.startTime = null;
                             await freshUser.save();
                             
-                            if (logKanal) {
-                                logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne 10 dakika boyunca yanıt vermediği için mesaisi otomatik sonlandırıldı.`);
-                            }
-                            
+                            if (logKanal) logKanal.send(`⚠️ <@${userData.userId}> AFK kontrolüne yanıt vermediği için mesaisi otomatik sonlandırıldı.`);
                             try { user.send('❌ 10 dakika yanıt vermediğiniz için mesainiz otomatik bitti.'); } catch(e){}
                         }
                         afkTimeouts.delete(userData.userId);
-                    }, 600000); // 10 Dakika süresi (600000 ms)
+                    }, 600000);
                     afkTimeouts.set(userData.userId, timeout);
-                } catch (e) { console.error('DM gönderilemedi'); }
+                } catch (e) {}
             }
         }
     }, 2700000);
 
-    // Kadro Güncelleme (5 Dakikada Bir)
+    // Kadro Güncelleme (Aynı)
     setInterval(async () => {
         if (aktifKadroMsg) {
             const onDutyUsers = await User.find({ onDuty: true });
@@ -207,68 +233,187 @@ client.on('messageCreate', async (message) => {
         );
         await message.channel.send({ embeds: [embed], components: [row1, row2] });
     }
+
+    // --- YENİ: İZİN PANELİ KOMUTU ---
+    if (message.content === '!izinpanel') {
+        const embed = new EmbedBuilder()
+            .setColor(0x2b2d31)
+            .setTitle('🚓 Mission Row Police Department — İzin Sistemi')
+            .setDescription(`🏖️ **İzin & Mazeret Paneli**\n\nAşağıdaki butonları kullanarak izin işlemlerinizi gerçekleştirebilirsiniz.\n\n📝 **İzin Talebi Oluştur**\nTarih aralığı ve mazeret bilgilerinizle talebinizi gönderin.\n\n⏳ **Saatlik Mazeret**\nSadece bugünü kapsayan saatlik mazeretlerinizi bildirin.\n\n✅ **Onay Süreci**\nTalebiniz yöneticiler tarafından onaylandığında **İzinli Memur** rolü atanır.\n\n⏰ **Süre Takibi**\nİzin süreniz dolduğunda rol **otomatik** olarak kaldırılır.\n\n🔄 **Erken Dönüş**\nErken dönerseniz **İznimi Bitir** butonuna tıklayarak izninizi kapatın.\n\n👥 **Şu An İzinli Olanlar — Yükleniyor...**\nLütfen bekleyin...`)
+            .setFooter({ text: `Son güncelleme: ${formatDate()}` });
+
+        const row = new ActionRowBuilder().addComponents(
+            new ButtonBuilder().setCustomId('btn_izin_talep').setLabel('📝 İzin Talebi Oluştur').setStyle(ButtonStyle.Primary),
+            new ButtonBuilder().setCustomId('btn_saatlik_mazeret').setLabel('⏳ Saatlik Mazeret').setStyle(ButtonStyle.Secondary),
+            new ButtonBuilder().setCustomId('btn_izin_bitir').setLabel('🔄 İznimi Bitir').setStyle(ButtonStyle.Danger)
+        );
+
+        const msg = await message.channel.send({ embeds: [embed], components: [row] });
+        izinPanelMsg = msg;
+        updateIzinPanel(); // Paneli veritabanındaki kişilerle güncelle
+    }
 });
 
 client.on('interactionCreate', async (interaction) => {
     const logKanal = interaction.client.channels.cache.get(LOG_KANAL_ID);
     
+    // --- MODAL (FORM) GÖNDERİMLERİ ---
+    if (interaction.isModalSubmit()) {
+        const yetkiliRole = await interaction.guild?.roles.fetch(YETKILI_ROL_ID).catch(()=>null);
+        
+        if (interaction.customId === 'modal_izin_talep') {
+            const baslangic = interaction.fields.getTextInputValue('baslangic_tarih');
+            const bitis = interaction.fields.getTextInputValue('bitis_tarih');
+            const sebep = interaction.fields.getTextInputValue('izin_sebep');
+
+            // Bitiş tarihini timestamp'e çevirme işlemi (Gün sonu 23:59:59)
+            const bParts = bitis.split('.');
+            let leaveUntilMs = null;
+            if(bParts.length === 3) {
+                leaveUntilMs = new Date(`${bParts[2]}-${bParts[1]}-${bParts[0]}T23:59:59`).getTime();
+            } else {
+                leaveUntilMs = Date.now() + (3 * 24 * 60 * 60 * 1000); // Format hatalıysa varsayılan 3 gün
+            }
+
+            const reqEmbed = new EmbedBuilder().setColor(0xf1c40f).setTitle('📝 Yeni İzin Talebi (GÜNLÜK)')
+                .addFields(
+                    { name: 'Personel', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Personel ID', value: interaction.user.id, inline: true },
+                    { name: 'Tarih Özeti', value: `${baslangic} ➔ ${bitis}`, inline: false },
+                    { name: 'Sebep', value: sebep, inline: false },
+                    { name: 'BitişMs', value: leaveUntilMs.toString(), inline: false } // Sistemsel gizli veri
+                );
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`admin_izin_onay`).setLabel('Onayla').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`admin_izin_red`).setLabel('Reddet').setStyle(ButtonStyle.Danger)
+            );
+
+            if (yetkiliRole) {
+                yetkiliRole.members.forEach(async (member) => {
+                    if (!member.user.bot) member.send({ embeds: [reqEmbed], components: [row] }).catch(()=>{});
+                });
+            }
+            return interaction.reply({ content: `✅ Günlük izin talebiniz yöneticilere iletildi.`, ephemeral: true });
+        }
+
+        if (interaction.customId === 'modal_saatlik_mazeret') {
+            const saatAraligi = interaction.fields.getTextInputValue('saat_araligi');
+            const sebep = interaction.fields.getTextInputValue('mazeret_sebep');
+
+            // Saatlik mazeret gün sonuna kadar geçerli olur
+            const endOfDay = new Date();
+            endOfDay.setHours(23, 59, 59, 999);
+            const leaveUntilMs = endOfDay.getTime();
+
+            const reqEmbed = new EmbedBuilder().setColor(0xe67e22).setTitle('⏳ Yeni Mazeret Bildirimi (SAATLİK)')
+                .addFields(
+                    { name: 'Personel', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Personel ID', value: interaction.user.id, inline: true },
+                    { name: 'Tarih Özeti', value: `Bugün (${saatAraligi})`, inline: false },
+                    { name: 'Sebep', value: sebep, inline: false },
+                    { name: 'BitişMs', value: leaveUntilMs.toString(), inline: false }
+                );
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`admin_izin_onay`).setLabel('Onayla').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`admin_izin_red`).setLabel('Reddet').setStyle(ButtonStyle.Danger)
+            );
+
+            if (yetkiliRole) {
+                yetkiliRole.members.forEach(async (member) => {
+                    if (!member.user.bot) member.send({ embeds: [reqEmbed], components: [row] }).catch(()=>{});
+                });
+            }
+            return interaction.reply({ content: `✅ Saatlik mazeretiniz yöneticilere iletildi.`, ephemeral: true });
+        }
+    }
+
     if (interaction.isButton()) {
         const userDoc = await User.findOne({ userId: interaction.user.id });
 
-        // --- YENİ: İZİN ONAY BUTONU ---
-        if (interaction.customId.startsWith('izin_onay_')) {
-            const parts = interaction.customId.split('_');
-            const targetUserId = parts[2];
-            const gun = parseFloat(parts[3]);
-            
-            // Veritabanı güncellemesi (Süre hesaplama)
-            let uDoc = await User.findOne({ userId: targetUserId });
-            if(!uDoc) { uDoc = new User({ userId: targetUserId }); }
-            
-            const leaveEndMs = Date.now() + (gun * 24 * 60 * 60 * 1000);
-            uDoc.leaveUntil = leaveEndMs;
-            await uDoc.save();
+        // --- İZİN PANELİ BUTONLARI ---
+        if (interaction.customId === 'btn_izin_talep') {
+            const modal = new ModalBuilder().setCustomId('modal_izin_talep').setTitle('İzin Talebi');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('baslangic_tarih').setLabel('İzin Başlangıç Tarihi *').setPlaceholder('GG.AA.YYYY (Örn: 25.06.2026)').setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('bitis_tarih').setLabel('İzin Bitiş Tarihi *').setPlaceholder('GG.AA.YYYY (Örn: 30.06.2026)').setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('izin_sebep').setLabel('İzin / Mazeret Açıklaması *').setPlaceholder('İzin nedeninizi açıklayın...').setStyle(TextInputStyle.Paragraph).setRequired(true))
+            );
+            return interaction.showModal(modal);
+        }
 
-            // Rol verme işlemi
-            const guild = interaction.client.guilds.cache.get(SUNUCU_ID);
+        if (interaction.customId === 'btn_saatlik_mazeret') {
+            const modal = new ModalBuilder().setCustomId('modal_saatlik_mazeret').setTitle('Saatlik Mazeret Bildirimi');
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('saat_araligi').setLabel('Saat Aralığı *').setPlaceholder('Örn: 14:00 - 18:00').setStyle(TextInputStyle.Short).setRequired(true)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('mazeret_sebep').setLabel('Mazeret Açıklaması *').setPlaceholder('Mazeretinizi belirtiniz...').setStyle(TextInputStyle.Paragraph).setRequired(true))
+            );
+            return interaction.showModal(modal);
+        }
+
+        if (interaction.customId === 'btn_izin_bitir') {
+            if (!userDoc || !userDoc.leaveUntil) {
+                return interaction.reply({ content: '❌ Zaten aktif bir izniniz bulunmuyor.', ephemeral: true });
+            }
+
+            userDoc.leaveUntil = null;
+            userDoc.leaveText = null;
+            await userDoc.save();
+
+            const guild = client.guilds.cache.get(SUNUCU_ID);
             if(guild) {
-                const member = await guild.members.fetch(targetUserId).catch(()=>null);
-                if(member) {
-                    await member.roles.add(IZINLI_ROL_ID).catch(()=>null);
-                }
+                const member = await guild.members.fetch(interaction.user.id).catch(()=>null);
+                if(member) await member.roles.remove(IZINLI_ROL_ID).catch(()=>null);
             }
 
-            // Log kanalına at
-            const izinLog = interaction.client.channels.cache.get(IZIN_LOG_KANAL_ID);
-            if(izinLog) {
-                izinLog.send(`✅ <@${targetUserId}> adlı personelin **${gun} günlük** izni <@${interaction.user.id}> tarafından onaylandı. Üzerine izinli permi verildi.`);
-            }
-
-            // Hedef kişiye DM at
-            const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
-            if(targetUser) {
-                targetUser.send(`✅ **İzin Talebiniz Onaylandı!**\nSüre: **${gun} Gün**\nOnaylayan Yetkili: <@${interaction.user.id}>`).catch(()=>null);
-            }
-
-            return interaction.update({ content: `✅ <@${targetUserId}> adlı kişinin iznini onayladınız.`, embeds: [], components: [] });
-        }
-        
-        // --- YENİ: İZİN RED BUTONU ---
-        if (interaction.customId.startsWith('izin_red_')) {
-            const parts = interaction.customId.split('_');
-            const targetUserId = parts[2];
+            const izinLog = client.channels.cache.get(IZIN_LOG_KANAL_ID);
+            if(izinLog) izinLog.send(`🔄 <@${interaction.user.id}> adlı personel iznini erken bitirdi. İzinli rolü alındı.`);
             
-            // Hedef kişiye DM at
-            const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
-            if(targetUser) {
-                targetUser.send(`❌ **İzin Talebiniz Reddedildi!**\nReddeden Yetkili: <@${interaction.user.id}>`).catch(()=>null);
-            }
-
-            return interaction.update({ content: `❌ <@${targetUserId}> adlı kişinin iznini reddettiniz.`, embeds: [], components: [] });
+            updateIzinPanel();
+            return interaction.reply({ content: '✅ İzniniz başarıyla sonlandırıldı ve göreve döndünüz.', ephemeral: true });
         }
 
+        // --- YÖNETİCİ DM ONAY/RET BUTONLARI ---
+        if (interaction.customId === 'admin_izin_onay' || interaction.customId === 'admin_izin_red') {
+            const embed = interaction.message.embeds[0];
+            const targetUserId = embed.fields.find(f => f.name === 'Personel ID').value;
+            const tarihOzet = embed.fields.find(f => f.name === 'Tarih Özeti').value;
+            const bitisMs = embed.fields.find(f => f.name === 'BitişMs').value;
 
-        // Mevcut Butonlar
+            if (interaction.customId === 'admin_izin_onay') {
+                let uDoc = await User.findOne({ userId: targetUserId });
+                if(!uDoc) uDoc = new User({ userId: targetUserId });
+                
+                uDoc.leaveUntil = parseInt(bitisMs);
+                uDoc.leaveText = tarihOzet;
+                await uDoc.save();
+
+                const guild = interaction.client.guilds.cache.get(SUNUCU_ID);
+                if(guild) {
+                    const member = await guild.members.fetch(targetUserId).catch(()=>null);
+                    if(member) await member.roles.add(IZINLI_ROL_ID).catch(()=>null);
+                }
+
+                const izinLog = interaction.client.channels.cache.get(IZIN_LOG_KANAL_ID);
+                if(izinLog) izinLog.send(`✅ <@${targetUserId}> adlı personelin **${tarihOzet}** tarihli izni <@${interaction.user.id}> tarafından onaylandı. İzinli permi verildi.`);
+
+                const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
+                if(targetUser) targetUser.send(`✅ **İzin Talebiniz Onaylandı!**\nTarih: **${tarihOzet}**\nOnaylayan Yetkili: <@${interaction.user.id}>`).catch(()=>null);
+
+                updateIzinPanel(); // Paneli güncelle
+                return interaction.update({ content: `✅ İzni onayladınız.`, embeds: [], components: [] });
+            }
+
+            if (interaction.customId === 'admin_izin_red') {
+                const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
+                if(targetUser) targetUser.send(`❌ **İzin Talebiniz Reddedildi!**\nReddeden Yetkili: <@${interaction.user.id}>`).catch(()=>null);
+                
+                return interaction.update({ content: `❌ İzni reddettiniz.`, embeds: [], components: [] });
+            }
+        }
+
+        // Mevcut Butonlar (AFK, Mesai Gir vs.)
         if (interaction.customId === 'afk_devam') {
             if (afkTimeouts.has(interaction.user.id)) {
                 clearTimeout(afkTimeouts.get(interaction.user.id));
@@ -317,17 +462,11 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
     
-    if (interaction.isModalSubmit() && interaction.customId === 'id_modal') {
-        const newId = interaction.fields.getTextInputValue('new_id');
-        await User.findOneAndUpdate({ userId: interaction.user.id }, { fivemId: newId }, { upsert: true });
-        interaction.reply({ content: `✅ Yeni ID: ${newId}`, ephemeral: true });
-    }
-
+    // Slash Komutları (Aynı)
     if (interaction.isChatInputCommand()) {
         const strikeKanal = interaction.client.channels.cache.get(STRIKE_KANAL_ID);
         const ihracKanal = interaction.client.channels.cache.get(IHRAC_KANAL_ID);
         
-        // KOMUT KULLANIM LOG SİSTEMİ (Güncellenmiş ID Etiketlemeli)
         const komutLogKanal = interaction.client.channels.cache.get(KOMUT_LOG_KANAL_ID);
         if (komutLogKanal) {
             const paramsList = interaction.options.data.map(opt => {
@@ -350,67 +489,18 @@ client.on('interactionCreate', async (interaction) => {
             komutLogKanal.send({ embeds: [cmdLogEmbed] }).catch(() => {});
         }
 
-        // --- YENİ: İZİN AL KOMUTU ---
-        if (interaction.commandName === 'izin-al') {
-            await interaction.deferReply({ ephemeral: true });
-            const gun = interaction.options.getNumber('gun');
-            const sebep = interaction.options.getString('sebep');
-            
-            // Onaylayacak yetkilileri bul
-            const yetkiliRole = await interaction.guild.roles.fetch(YETKILI_ROL_ID).catch(()=>null);
-            if (!yetkiliRole) {
-                return interaction.editReply('❌ Sistem hatası: Yetkili rolü bulunamadı. Lütfen yöneticinize bildirin.');
-            }
-
-            const reqEmbed = new EmbedBuilder()
-                .setColor(0xf1c40f)
-                .setTitle('📝 Yeni İzin Talebi')
-                .addFields(
-                    { name: 'Personel', value: `<@${interaction.user.id}>`, inline: true },
-                    { name: 'Talep Edilen Süre', value: `${gun} Gün`, inline: true },
-                    { name: 'Sebep', value: sebep, inline: false }
-                )
-                .setFooter({ text: `Talep Eden ID: ${interaction.user.id}` });
-
-            const row = new ActionRowBuilder().addComponents(
-                new ButtonBuilder().setCustomId(`izin_onay_${interaction.user.id}_${gun}`).setLabel('Onayla').setStyle(ButtonStyle.Success),
-                new ButtonBuilder().setCustomId(`izin_red_${interaction.user.id}`).setLabel('Reddet').setStyle(ButtonStyle.Danger)
-            );
-
-            let sentCount = 0;
-            // Tüm yetkililere DM gönder
-            yetkiliRole.members.forEach(async (member) => {
-                if (!member.user.bot) {
-                    try {
-                        await member.send({ embeds: [reqEmbed], components: [row] });
-                        sentCount++;
-                    } catch(e){}
-                }
-            });
-
-            await interaction.editReply(`✅ İzin talebiniz başarıyla alınmış ve ${sentCount} yetkiliye DM üzerinden iletilmiştir. Onay/Red durumu size DM olarak bildirilecektir.`);
-        }
-
-
-        // Mevcut Komutlar
         if (interaction.commandName === 'haftalik-mesai-bilgi') {
             const targetUser = interaction.options.getUser('kisi');
             const userDoc = await User.findOne({ userId: targetUser.id });
             const time = userDoc ? userDoc.weeklyTime : 0;
-            
-            await interaction.reply({ 
-                content: `📅 <@${targetUser.id}> adlı personelin bu haftaki mesaisi: **${formatTime(time)}**` 
-            });
+            await interaction.reply({ content: `📅 <@${targetUser.id}> adlı personelin bu haftaki mesaisi: **${formatTime(time)}**` });
         }
 
         if (interaction.commandName === 'top-mesai-bilgi') {
             const targetUser = interaction.options.getUser('kisi');
             const userDoc = await User.findOne({ userId: targetUser.id });
             const time = userDoc ? userDoc.totalTime : 0;
-            
-            await interaction.reply({ 
-                content: `📊 <@${targetUser.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**` 
-            });
+            await interaction.reply({ content: `📊 <@${targetUser.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**` });
         }
 
         if (interaction.commandName === 'strike') {
@@ -419,19 +509,11 @@ client.on('interactionCreate', async (interaction) => {
             const rol = interaction.options.getRole('rol');
             const sebep = interaction.options.getString('sebep');
             
-            if (kisi && rol) {
-                await kisi.roles.add(rol).catch(() => {});
-            }
+            if (kisi && rol) await kisi.roles.add(rol).catch(() => {});
 
             const embed = new EmbedBuilder()
                 .setColor(0xd32f2f)
-                .setDescription(
-                    `### ⚠️ Strike Verildi\n\n` +
-                    `**Kullanıcı:** <@${targetUser.id}>\n` +
-                    `**Yetkili:** <@${interaction.user.id}>\n` +
-                    `**Rol:** <@&${rol.id}>\n` +
-                    `**Sebep:** ${sebep}`
-                );
+                .setDescription(`### ⚠️ Strike Verildi\n\n**Kullanıcı:** <@${targetUser.id}>\n**Yetkili:** <@${interaction.user.id}>\n**Rol:** <@&${rol.id}>\n**Sebep:** ${sebep}`);
 
             if (strikeKanal) {
                 await strikeKanal.send({ embeds: [embed] });
@@ -448,24 +530,14 @@ client.on('interactionCreate', async (interaction) => {
 
             if (kisi) {
                 await kisi.setNickname('İHRAÇ').catch(() => {});
-
                 const ihracRole = interaction.guild.roles.cache.get(IHRAC_ROL_ID) || interaction.guild.roles.cache.find(r => r.name.toLowerCase().includes('ihraç') || r.name.toLowerCase().includes('ihrac'));
-                
-                if (ihracRole) {
-                    await kisi.roles.set([ihracRole.id]).catch(() => {});
-                } else {
-                    await kisi.roles.set([]).catch(() => {});
-                }
+                if (ihracRole) await kisi.roles.set([ihracRole.id]).catch(() => {});
+                else await kisi.roles.set([]).catch(() => {});
             }
 
             const embed = new EmbedBuilder()
                 .setColor(0xd32f2f)
-                .setDescription(
-                    `### 🛑 Departmandan İhraç\n\n` +
-                    `**İhraç Edilecek Kişi:** <@${targetUser.id}>\n` +
-                    `**Dc ID:** "${targetUser.id}"\n` +
-                    `**Sebep:** "${sebep}"`
-                );
+                .setDescription(`### 🛑 Departmandan İhraç\n\n**İhraç Edilecek Kişi:** <@${targetUser.id}>\n**Dc ID:** "${targetUser.id}"\n**Sebep:** "${sebep}"`);
 
             if (ihracKanal) {
                 await ihracKanal.send({ embeds: [embed] });
@@ -477,52 +549,26 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'duyuru-gonder') {
             await interaction.deferReply({ ephemeral: true });
-
             const rol = interaction.options.getRole('rol');
             const baslik = interaction.options.getString('baslik');
             const mesaj = interaction.options.getString('mesaj');
 
-            const dmEmbed = new EmbedBuilder()
-                .setColor(0x2b2d31)
-                .setDescription(
-                    `📢 # ${baslik}\n\n` +
-                    `# ${mesaj}\n\n` +
-                    `**Gönderen:** ${interaction.member.displayName}\n` +
-                    `**Tarih:** ${formatDate()}`
-                );
-
+            const dmEmbed = new EmbedBuilder().setColor(0x2b2d31).setDescription(`📢 # ${baslik}\n\n# ${mesaj}\n\n**Gönderen:** ${interaction.member.displayName}\n**Tarih:** ${formatDate()}`);
             await interaction.guild.members.fetch();
-            const membersWithRole = rol.members;
-
-            let basarili = 0;
-            let basarisiz = 0;
-
-            for (const [id, member] of membersWithRole) {
+            
+            let basarili = 0, basarisiz = 0;
+            for (const [id, member] of rol.members) {
                 if (member.user.bot) continue;
-                try {
-                    await member.send({ embeds: [dmEmbed] });
-                    basarili++;
-                } catch (e) {
-                    basarisiz++;
-                }
+                try { await member.send({ embeds: [dmEmbed] }); basarili++; } catch (e) { basarisiz++; }
             }
-
-            await interaction.editReply({ 
-                content: `✅ Duyuru tamamlandı!\n**Başarılı:** ${basarili} kişi | **DM Kapalı/Hata:** ${basarisiz} kişi` 
-            });
+            await interaction.editReply({ content: `✅ Duyuru tamamlandı!\n**Başarılı:** ${basarili} kişi | **DM Kapalı/Hata:** ${basarisiz} kişi` });
         }
 
         if (interaction.commandName === 'aktif-kadro') {
             const onDutyUsers = await User.find({ onDuty: true });
-            const embed = new EmbedBuilder()
-                .setColor(0x00ff00)
-                .setTitle('🟢 Aktif Görevdeki Personel');
-
-            if (onDutyUsers.length > 0) {
-                embed.setDescription(onDutyUsers.map(u => `<@${u.userId}> (ID: ${u.fivemId}) - ${formatTime(Date.now() - u.startTime)}`).join('\n'));
-            } else {
-                embed.setDescription('Şu an aktif görevde personel bulunmuyor.');
-            }
+            const embed = new EmbedBuilder().setColor(0x00ff00).setTitle('🟢 Aktif Görevdeki Personel');
+            if (onDutyUsers.length > 0) embed.setDescription(onDutyUsers.map(u => `<@${u.userId}> (ID: ${u.fivemId}) - ${formatTime(Date.now() - u.startTime)}`).join('\n'));
+            else embed.setDescription('Şu an aktif görevde personel bulunmuyor.');
             embed.setFooter({ text: `${onDutyUsers.length} personel aktif görevde • Son güncelleme ${formatDate()}` });
 
             const msg = await interaction.reply({ embeds: [embed], fetchReply: true });
@@ -531,17 +577,10 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'top-mesai') {
             const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
-            
             if (list.length > 0) {
-                const description = list.map((u, i) => `**${i+1}.** <@${u.userId}> ➔ **${formatTime(u.weeklyTime)}**`).join('\n');
-                const embed = new EmbedBuilder()
-                    .setColor(0x3498db)
-                    .setTitle('🏆 Haftalık Mesai Liderlik Tablosu')
-                    .setDescription(description);
-                await interaction.reply({ embeds: [embed] });
-            } else {
-                await interaction.reply({ content: 'Henüz mesai yapan personel bulunmuyor.' });
-            }
+                const desc = list.map((u, i) => `**${i+1}.** <@${u.userId}> ➔ **${formatTime(u.weeklyTime)}**`).join('\n');
+                await interaction.reply({ embeds: [new EmbedBuilder().setColor(0x3498db).setTitle('🏆 Haftalık Mesai Liderlik Tablosu').setDescription(desc)] });
+            } else await interaction.reply({ content: 'Henüz mesai yapan personel bulunmuyor.' });
         }
 
         if (interaction.commandName === 'hafta-mesai-sil') {
@@ -551,74 +590,46 @@ client.on('interactionCreate', async (interaction) => {
 
         if (interaction.commandName === 'aktif-kadro-cıkar') {
             await interaction.deferReply({ ephemeral: true });
-
             const activeUsers = await User.find({ onDuty: true });
-
-            if (activeUsers.length === 0) {
-                return interaction.editReply({ content: '❌ Şu an aktif mesaide kimse bulunmuyor.' });
-            }
+            if (activeUsers.length === 0) return interaction.editReply({ content: '❌ Şu an aktif mesaide kimse bulunmuyor.' });
 
             for (const userDoc of activeUsers) {
                 if (userDoc.startTime) {
                     const duration = Date.now() - userDoc.startTime;
-                    userDoc.totalTime += duration;
-                    userDoc.weeklyTime += duration;
+                    userDoc.totalTime += duration; userDoc.weeklyTime += duration;
                 }
-                userDoc.onDuty = false;
-                userDoc.startTime = null;
-                await userDoc.save();
+                userDoc.onDuty = false; userDoc.startTime = null; await userDoc.save();
             }
-
-            await interaction.editReply({ 
-                content: `✅ Mesaideki **${activeUsers.length}** personelin süresi hesaplanıp **haftalık/toplam mesailerine eklendi** ve mesaileri sonlandırıldı.` 
-            });
+            await interaction.editReply({ content: `✅ Mesaideki **${activeUsers.length}** personelin süresi hesaplanıp haftalık/toplam mesailerine eklendi ve mesaileri sonlandırıldı.` });
         }
 
         if (interaction.commandName === 'mesai-ekle') {
             const targetUser = interaction.options.getUser('kisi');
-            const saat = interaction.options.getNumber('saat');
-            const msToAdd = saat * 3600000; 
+            const msToAdd = interaction.options.getNumber('saat') * 3600000; 
 
             let userDoc = await User.findOne({ userId: targetUser.id });
-            if (!userDoc) {
-                return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı. Önce \`!kayıt <ID>\` yapması gerekiyor.`, ephemeral: true });
-            }
+            if (!userDoc) return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
 
-            userDoc.totalTime += msToAdd;
-            userDoc.weeklyTime += msToAdd;
-            await userDoc.save();
-
-            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personele başarıyla **${saat} saat** mesai eklendi.`, ephemeral: true });
+            userDoc.totalTime += msToAdd; userDoc.weeklyTime += msToAdd; await userDoc.save();
+            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personele başarıyla mesai eklendi.`, ephemeral: true });
         }
 
         if (interaction.commandName === 'mesai-sil') {
             const targetUser = interaction.options.getUser('kisi');
-            const saat = interaction.options.getNumber('saat');
-            const msToRemove = saat * 3600000; 
+            const msToRemove = interaction.options.getNumber('saat') * 3600000; 
 
             let userDoc = await User.findOne({ userId: targetUser.id });
-            if (!userDoc) {
-                return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
-            }
+            if (!userDoc) return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
 
-            userDoc.totalTime -= msToRemove;
-            userDoc.weeklyTime -= msToRemove;
-            await userDoc.save();
-
-            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personelden başarıyla **${saat} saat** mesai silindi.`, ephemeral: true });
+            userDoc.totalTime -= msToRemove; userDoc.weeklyTime -= msToRemove; await userDoc.save();
+            interaction.reply({ content: `✅ <@${targetUser.id}> adlı personelden başarıyla mesai silindi.`, ephemeral: true });
         }
     }
 });
 
 // --- ANTI-CRASH SİSTEMİ ---
-process.on('unhandledRejection', (reason, p) => {
-    console.log('❌ [Anti-Crash] Unhandled Rejection/Catch', reason, p);
-});
-process.on('uncaughtException', (err, origin) => {
-    console.log('❌ [Anti-Crash] Uncaught Exception/Catch', err, origin);
-});
-process.on('uncaughtExceptionMonitor', (err, origin) => {
-    console.log('❌ [Anti-Crash] Uncaught Exception/Catch (Monitor)', err, origin);
-});
+process.on('unhandledRejection', (reason, p) => console.log('❌ [Anti-Crash] Unhandled Rejection/Catch', reason, p));
+process.on('uncaughtException', (err, origin) => console.log('❌ [Anti-Crash] Uncaught Exception/Catch', err, origin));
+process.on('uncaughtExceptionMonitor', (err, origin) => console.log('❌ [Anti-Crash] Uncaught Exception/Catch (Monitor)', err, origin));
 
 client.login(TOKEN);
