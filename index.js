@@ -17,7 +17,8 @@ const userSchema = new mongoose.Schema({
     onDuty: { type: Boolean, default: false },
     startTime: { type: Number, default: null },
     totalTime: { type: Number, default: 0 },
-    weeklyTime: { type: Number, default: 0 }
+    weeklyTime: { type: Number, default: 0 },
+    leaveUntil: { type: Number, default: null } // YENİ: İzin bitiş süresi
 });
 const User = mongoose.model('User', userSchema);
 
@@ -65,8 +66,13 @@ const LOG_KANAL_ID = '1522260330502291767';
 const STRIKE_KANAL_ID = '1475505351108591707';
 const IHRAC_KANAL_ID = '1478819151689679039';
 const IHRAC_ROL_ID = '1475505209278075131';
-// YENİ: Tüm komutların loglanacağı kanalın ID'sini buraya girin
 const KOMUT_LOG_KANAL_ID = '1528929952412733480'; 
+
+// --- YENİ: İZİN SİSTEMİ AYARLARI ---
+const SUNUCU_ID = '1224108385771716749'; // Botun işlem yapacağı ana sunucu ID
+const YETKILI_ROL_ID = '1528933720969580634'; // İzinleri onaylayacak kişilerin rol ID'si (Buna DM gider)
+const IZINLI_ROL_ID = '1525600296951222323'; // İzni onaylanana verilecek rol ID
+const IZIN_LOG_KANAL_ID = '1528933597896114368'; // İzin bildirimlerinin düşeceği log kanalı
 
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
@@ -78,9 +84,10 @@ const commands = [
     new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesi mesai dışı bırakır.'),
     new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele belirtilen saat kadar mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Eklenecek saat (Örn: 2 veya 1.5)').setRequired(true)),
     new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden belirtilen saat kadar mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Silinecek saat (Örn: 2 veya 1.5)').setRequired(true)),
-    // YENİ KOMUTLAR
     new SlashCommandBuilder().setName('haftalik-mesai-bilgi').setDescription('Belirtilen kişinin haftalık mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true)),
-    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Belirtilen kişinin toplam mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true))
+    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Belirtilen kişinin toplam mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true)),
+    // YENİ KOMUT: İZİN SİSTEMİ
+    new SlashCommandBuilder().setName('izin-al').setDescription('Departmandan izin talep edersiniz.').addNumberOption(o=>o.setName('gun').setDescription('Kaç gün izin istiyorsunuz?').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('İzin sebebi').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -88,6 +95,31 @@ const rest = new REST({ version: '10' }).setToken(TOKEN);
 client.on('ready', async () => {
     console.log(`${client.user.tag} sistemi aktif!`);
     await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
+
+    // YENİ: İzin Süresi Dolanları Kontrol Eden Sistem (Her 1 dakikada bir kontrol eder)
+    setInterval(async () => {
+        const expiredUsers = await User.find({ leaveUntil: { $lt: Date.now(), $ne: null } });
+        if(expiredUsers.length > 0) {
+            const guild = client.guilds.cache.get(SUNUCU_ID);
+            const izinLogKanal = client.channels.cache.get(IZIN_LOG_KANAL_ID);
+            
+            for(const u of expiredUsers) {
+                if(guild) {
+                    const member = await guild.members.fetch(u.userId).catch(()=>null);
+                    if(member) {
+                        await member.roles.remove(IZINLI_ROL_ID).catch(()=>null);
+                    }
+                }
+                
+                u.leaveUntil = null;
+                await u.save();
+
+                if(izinLogKanal) {
+                    izinLogKanal.send(`⏰ <@${u.userId}> adlı personelin izni sona erdi. Üzerindeki izinli rolü otomatik alındı.`);
+                }
+            }
+        }
+    }, 60000);
 
     // AFK Kontrolü
     setInterval(async () => {
@@ -183,6 +215,60 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isButton()) {
         const userDoc = await User.findOne({ userId: interaction.user.id });
 
+        // --- YENİ: İZİN ONAY BUTONU ---
+        if (interaction.customId.startsWith('izin_onay_')) {
+            const parts = interaction.customId.split('_');
+            const targetUserId = parts[2];
+            const gun = parseFloat(parts[3]);
+            
+            // Veritabanı güncellemesi (Süre hesaplama)
+            let uDoc = await User.findOne({ userId: targetUserId });
+            if(!uDoc) { uDoc = new User({ userId: targetUserId }); }
+            
+            const leaveEndMs = Date.now() + (gun * 24 * 60 * 60 * 1000);
+            uDoc.leaveUntil = leaveEndMs;
+            await uDoc.save();
+
+            // Rol verme işlemi
+            const guild = interaction.client.guilds.cache.get(SUNUCU_ID);
+            if(guild) {
+                const member = await guild.members.fetch(targetUserId).catch(()=>null);
+                if(member) {
+                    await member.roles.add(IZINLI_ROL_ID).catch(()=>null);
+                }
+            }
+
+            // Log kanalına at
+            const izinLog = interaction.client.channels.cache.get(IZIN_LOG_KANAL_ID);
+            if(izinLog) {
+                izinLog.send(`✅ <@${targetUserId}> adlı personelin **${gun} günlük** izni <@${interaction.user.id}> tarafından onaylandı. Üzerine izinli permi verildi.`);
+            }
+
+            // Hedef kişiye DM at
+            const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
+            if(targetUser) {
+                targetUser.send(`✅ **İzin Talebiniz Onaylandı!**\nSüre: **${gun} Gün**\nOnaylayan Yetkili: <@${interaction.user.id}>`).catch(()=>null);
+            }
+
+            return interaction.update({ content: `✅ <@${targetUserId}> adlı kişinin iznini onayladınız.`, embeds: [], components: [] });
+        }
+        
+        // --- YENİ: İZİN RED BUTONU ---
+        if (interaction.customId.startsWith('izin_red_')) {
+            const parts = interaction.customId.split('_');
+            const targetUserId = parts[2];
+            
+            // Hedef kişiye DM at
+            const targetUser = await interaction.client.users.fetch(targetUserId).catch(()=>null);
+            if(targetUser) {
+                targetUser.send(`❌ **İzin Talebiniz Reddedildi!**\nReddeden Yetkili: <@${interaction.user.id}>`).catch(()=>null);
+            }
+
+            return interaction.update({ content: `❌ <@${targetUserId}> adlı kişinin iznini reddettiniz.`, embeds: [], components: [] });
+        }
+
+
+        // Mevcut Butonlar
         if (interaction.customId === 'afk_devam') {
             if (afkTimeouts.has(interaction.user.id)) {
                 clearTimeout(afkTimeouts.get(interaction.user.id));
@@ -241,11 +327,10 @@ client.on('interactionCreate', async (interaction) => {
         const strikeKanal = interaction.client.channels.cache.get(STRIKE_KANAL_ID);
         const ihracKanal = interaction.client.channels.cache.get(IHRAC_KANAL_ID);
         
-        // KOMUT KULLANIM LOG SİSTEMİ
+        // KOMUT KULLANIM LOG SİSTEMİ (Güncellenmiş ID Etiketlemeli)
         const komutLogKanal = interaction.client.channels.cache.get(KOMUT_LOG_KANAL_ID);
         if (komutLogKanal) {
             const paramsList = interaction.options.data.map(opt => {
-                // Discord API option tipleri: 6 = User, 7 = Channel, 8 = Role
                 if (opt.type === 6) return `**${opt.name}:** <@${opt.value}>`;
                 if (opt.type === 8) return `**${opt.name}:** <@&${opt.value}>`;
                 if (opt.type === 7) return `**${opt.name}:** <#${opt.value}>`;
@@ -265,7 +350,49 @@ client.on('interactionCreate', async (interaction) => {
             komutLogKanal.send({ embeds: [cmdLogEmbed] }).catch(() => {});
         }
 
-        // --- YENİ: HAFTALIK MESAİ BİLGİ KOMUTU ---
+        // --- YENİ: İZİN AL KOMUTU ---
+        if (interaction.commandName === 'izin-al') {
+            await interaction.deferReply({ ephemeral: true });
+            const gun = interaction.options.getNumber('gun');
+            const sebep = interaction.options.getString('sebep');
+            
+            // Onaylayacak yetkilileri bul
+            const yetkiliRole = await interaction.guild.roles.fetch(YETKILI_ROL_ID).catch(()=>null);
+            if (!yetkiliRole) {
+                return interaction.editReply('❌ Sistem hatası: Yetkili rolü bulunamadı. Lütfen yöneticinize bildirin.');
+            }
+
+            const reqEmbed = new EmbedBuilder()
+                .setColor(0xf1c40f)
+                .setTitle('📝 Yeni İzin Talebi')
+                .addFields(
+                    { name: 'Personel', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Talep Edilen Süre', value: `${gun} Gün`, inline: true },
+                    { name: 'Sebep', value: sebep, inline: false }
+                )
+                .setFooter({ text: `Talep Eden ID: ${interaction.user.id}` });
+
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder().setCustomId(`izin_onay_${interaction.user.id}_${gun}`).setLabel('Onayla').setStyle(ButtonStyle.Success),
+                new ButtonBuilder().setCustomId(`izin_red_${interaction.user.id}`).setLabel('Reddet').setStyle(ButtonStyle.Danger)
+            );
+
+            let sentCount = 0;
+            // Tüm yetkililere DM gönder
+            yetkiliRole.members.forEach(async (member) => {
+                if (!member.user.bot) {
+                    try {
+                        await member.send({ embeds: [reqEmbed], components: [row] });
+                        sentCount++;
+                    } catch(e){}
+                }
+            });
+
+            await interaction.editReply(`✅ İzin talebiniz başarıyla alınmış ve ${sentCount} yetkiliye DM üzerinden iletilmiştir. Onay/Red durumu size DM olarak bildirilecektir.`);
+        }
+
+
+        // Mevcut Komutlar
         if (interaction.commandName === 'haftalik-mesai-bilgi') {
             const targetUser = interaction.options.getUser('kisi');
             const userDoc = await User.findOne({ userId: targetUser.id });
@@ -276,7 +403,6 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- YENİ: TOPLAM MESAİ BİLGİ KOMUTU ---
         if (interaction.commandName === 'top-mesai-bilgi') {
             const targetUser = interaction.options.getUser('kisi');
             const userDoc = await User.findOne({ userId: targetUser.id });
@@ -287,7 +413,6 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- STRIKE KOMUTU ---
         if (interaction.commandName === 'strike') {
             const kisi = interaction.options.getMember('kisi');
             const targetUser = interaction.options.getUser('kisi');
@@ -316,7 +441,6 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // --- İHRAÇ KOMUTU ---
         if (interaction.commandName === 'ihrac') {
             const kisi = interaction.options.getMember('kisi');
             const targetUser = interaction.options.getUser('kisi');
@@ -351,7 +475,6 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // --- DUYURU GÖNDER KOMUTU ---
         if (interaction.commandName === 'duyuru-gonder') {
             await interaction.deferReply({ ephemeral: true });
 
@@ -389,7 +512,6 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- AKTİF KADRO KOMUTU ---
         if (interaction.commandName === 'aktif-kadro') {
             const onDutyUsers = await User.find({ onDuty: true });
             const embed = new EmbedBuilder()
@@ -407,7 +529,6 @@ client.on('interactionCreate', async (interaction) => {
             aktifKadroMsg = msg;
         }
 
-        // --- TOP MESAİ KOMUTU ---
         if (interaction.commandName === 'top-mesai') {
             const list = await User.find({ weeklyTime: { $gt: 0 } }).sort({ weeklyTime: -1 });
             
@@ -423,13 +544,11 @@ client.on('interactionCreate', async (interaction) => {
             }
         }
 
-        // --- HAFTA MESAİ SİL KOMUTU ---
         if (interaction.commandName === 'hafta-mesai-sil') {
             await User.updateMany({}, { weeklyTime: 0 });
             interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
 
-        // --- AKTİF KADRO ÇIKAR KOMUTU ---
         if (interaction.commandName === 'aktif-kadro-cıkar') {
             await interaction.deferReply({ ephemeral: true });
 
@@ -455,11 +574,10 @@ client.on('interactionCreate', async (interaction) => {
             });
         }
 
-        // --- MESAİ EKLE KOMUTU ---
         if (interaction.commandName === 'mesai-ekle') {
             const targetUser = interaction.options.getUser('kisi');
             const saat = interaction.options.getNumber('saat');
-            const msToAdd = saat * 3600000; // Saat -> Milisaniye
+            const msToAdd = saat * 3600000; 
 
             let userDoc = await User.findOne({ userId: targetUser.id });
             if (!userDoc) {
@@ -473,18 +591,16 @@ client.on('interactionCreate', async (interaction) => {
             interaction.reply({ content: `✅ <@${targetUser.id}> adlı personele başarıyla **${saat} saat** mesai eklendi.`, ephemeral: true });
         }
 
-        // --- MESAİ SİL KOMUTU ---
         if (interaction.commandName === 'mesai-sil') {
             const targetUser = interaction.options.getUser('kisi');
             const saat = interaction.options.getNumber('saat');
-            const msToRemove = saat * 3600000; // Saat -> Milisaniye
+            const msToRemove = saat * 3600000; 
 
             let userDoc = await User.findOne({ userId: targetUser.id });
             if (!userDoc) {
                 return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
             }
 
-            // Sürenin 0'ın altına inmesine izin veriyoruz
             userDoc.totalTime -= msToRemove;
             userDoc.weeklyTime -= msToRemove;
             await userDoc.save();
