@@ -44,10 +44,14 @@ const afkTimeouts = new Map();
 // --- YARDIMCI FONKSİYONLAR ---
 function formatTime(ms) {
     let totalSeconds = Math.floor(ms / 1000);
+    // Eksi değerler için düzenleme
+    let isNegative = totalSeconds < 0;
+    totalSeconds = Math.abs(totalSeconds);
+    
     let h = Math.floor(totalSeconds / 3600);
     let m = Math.floor((totalSeconds % 3600) / 60);
     let s = totalSeconds % 60;
-    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    return `${isNegative ? '-' : ''}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 function formatDate() {
@@ -61,6 +65,8 @@ const LOG_KANAL_ID = '1522260330502291767';
 const STRIKE_KANAL_ID = '1475505351108591707';
 const IHRAC_KANAL_ID = '1478819151689679039';
 const IHRAC_ROL_ID = '1475505209278075131';
+// YENİ: Tüm komutların loglanacağı kanalın ID'sini buraya girin
+const KOMUT_LOG_KANAL_ID = '1528929952412733480'; 
 
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
@@ -71,7 +77,10 @@ const commands = [
     new SlashCommandBuilder().setName('hafta-mesai-sil').setDescription('Tüm haftalık mesaileri sıfırlar.'),
     new SlashCommandBuilder().setName('aktif-kadro-cıkar').setDescription('Mesaideki herkesi mesai dışı bırakır.'),
     new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele belirtilen saat kadar mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Eklenecek saat (Örn: 2 veya 1.5)').setRequired(true)),
-    new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden belirtilen saat kadar mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Silinecek saat (Örn: 2 veya 1.5)').setRequired(true))
+    new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden belirtilen saat kadar mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Silinecek saat (Örn: 2 veya 1.5)').setRequired(true)),
+    // YENİ KOMUTLAR
+    new SlashCommandBuilder().setName('haftalik-mesai-bilgi').setDescription('Belirtilen kişinin haftalık mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true)),
+    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Belirtilen kişinin toplam mesai saatini gösterir.').addUserOption(o=>o.setName('kisi').setDescription('Mesaisi görüntülenecek kişi').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -231,6 +240,45 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         const strikeKanal = interaction.client.channels.cache.get(STRIKE_KANAL_ID);
         const ihracKanal = interaction.client.channels.cache.get(IHRAC_KANAL_ID);
+        
+        // KOMUT KULLANIM LOG SİSTEMİ
+        const komutLogKanal = interaction.client.channels.cache.get(KOMUT_LOG_KANAL_ID);
+        if (komutLogKanal) {
+            const paramsList = interaction.options.data.map(opt => `**${opt.name}:** ${opt.value}`).join(' | ');
+            const cmdLogEmbed = new EmbedBuilder()
+                .setColor(0x2b2d31)
+                .setTitle('🛠️ Slash Komut Kullanıldı')
+                .addFields(
+                    { name: 'Kullanan', value: `<@${interaction.user.id}>`, inline: true },
+                    { name: 'Komut', value: `/${interaction.commandName}`, inline: true },
+                    { name: 'Parametreler', value: paramsList || 'Yok', inline: false },
+                    { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: false }
+                )
+                .setTimestamp();
+            komutLogKanal.send({ embeds: [cmdLogEmbed] }).catch(() => {});
+        }
+
+        // --- YENİ: HAFTALIK MESAİ BİLGİ KOMUTU ---
+        if (interaction.commandName === 'haftalik-mesai-bilgi') {
+            const targetUser = interaction.options.getUser('kisi');
+            const userDoc = await User.findOne({ userId: targetUser.id });
+            const time = userDoc ? userDoc.weeklyTime : 0;
+            
+            await interaction.reply({ 
+                content: `📅 <@${targetUser.id}> adlı personelin bu haftaki mesaisi: **${formatTime(time)}**` 
+            });
+        }
+
+        // --- YENİ: TOPLAM MESAİ BİLGİ KOMUTU ---
+        if (interaction.commandName === 'top-mesai-bilgi') {
+            const targetUser = interaction.options.getUser('kisi');
+            const userDoc = await User.findOne({ userId: targetUser.id });
+            const time = userDoc ? userDoc.totalTime : 0;
+            
+            await interaction.reply({ 
+                content: `📊 <@${targetUser.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**` 
+            });
+        }
 
         // --- STRIKE KOMUTU ---
         if (interaction.commandName === 'strike') {
@@ -374,7 +422,7 @@ client.on('interactionCreate', async (interaction) => {
             interaction.reply({ content: '✅ Sıfırlandı.', ephemeral: true });
         }
 
-        // --- AKTİF KADRO ÇIKAR KOMUTU (GÜNCEL) ---
+        // --- AKTİF KADRO ÇIKAR KOMUTU ---
         if (interaction.commandName === 'aktif-kadro-cıkar') {
             await interaction.deferReply({ ephemeral: true });
 
@@ -404,7 +452,7 @@ client.on('interactionCreate', async (interaction) => {
         if (interaction.commandName === 'mesai-ekle') {
             const targetUser = interaction.options.getUser('kisi');
             const saat = interaction.options.getNumber('saat');
-            const msToAdd = saat * 3600000; // Saat -> Milisaniye (1 saat = 60*60*1000 ms)
+            const msToAdd = saat * 3600000; // Saat -> Milisaniye
 
             let userDoc = await User.findOne({ userId: targetUser.id });
             if (!userDoc) {
@@ -429,9 +477,9 @@ client.on('interactionCreate', async (interaction) => {
                 return interaction.reply({ content: `❌ <@${targetUser.id}> veritabanında bulunamadı.`, ephemeral: true });
             }
 
-            // Sürenin 0'ın altına inmemesini garantiliyoruz
-            userDoc.totalTime = Math.max(0, userDoc.totalTime - msToRemove);
-            userDoc.weeklyTime = Math.max(0, userDoc.weeklyTime - msToRemove);
+            // Sürenin 0'ın altına inmesine izin veriyoruz
+            userDoc.totalTime -= msToRemove;
+            userDoc.weeklyTime -= msToRemove;
             await userDoc.save();
 
             interaction.reply({ content: `✅ <@${targetUser.id}> adlı personelden başarıyla **${saat} saat** mesai silindi.`, ephemeral: true });
