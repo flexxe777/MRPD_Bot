@@ -111,11 +111,11 @@ const STRIKE_KANAL_ID = process.env.STRIKE_KANAL_ID || '1475505351108591707';
 const IHRAC_KANAL_ID = process.env.IHRAC_KANAL_ID || '1478819151689679039';
 const IHRAC_ROL_ID = process.env.IHRAC_ROL_ID || '1475505209278075131';
 
-const KOMUT_LOG_KANAL_ID = process.env.KOMUT_LOG_KANAL_ID || 'BURAYA_KOMUT_LOG_KANALI_IDSINI_GIRIN'; 
-const SUNUCU_ID = process.env.SUNUCU_ID || 'BURAYA_SUNUCU_IDSINI_GIRIN'; 
-const YETKILI_ROL_ID = process.env.YETKILI_ROL_ID || 'BURAYA_ONAYLAYACAK_YETKILI_ROL_ID_GIRIN'; 
-const IZINLI_ROL_ID = process.env.IZINLI_ROL_ID || 'BURAYA_IZINLI_ROL_ID_GIRIN'; 
-const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || 'BURAYA_IZIN_LOG_KANAL_ID_GIRIN'; 
+const KOMUT_LOG_KANAL_ID = process.env.KOMUT_LOG_KANAL_ID || '1528929952412733480'; 
+const SUNUCU_ID = process.env.SUNUCU_ID || '1224108385771716749'; 
+const YETKILI_ROL_ID = process.env.YETKILI_ROL_ID || '1528933720969580634'; 
+const IZINLI_ROL_ID = process.env.IZINLI_ROL_ID || '1525600296951222323'; 
+const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || '1528933597896114368'; 
 
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
