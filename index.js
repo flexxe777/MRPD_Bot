@@ -96,7 +96,7 @@ async function updateIzinPanel() {
         
         const embed = new EmbedBuilder()
             .setColor(0x2b2d31)
-            .setTitle('🚓 Mission Row Police Department — İzin Sistemi')
+            .setTitle('🚓 Davis County Sheriff\'s Office — İzin Sistemi')
             .setDescription(`🏖️ **İzin & Mazeret Paneli**\n\nAşağıdaki butonları kullanarak izinlerinizi bildirebilirsiniz.\n\n📝 **İzin Talebi Oluştur**\nTarih aralığı ve mazeret bilgilerinizle talebinizi gönderin.\n\n⏳ **Saatlik Mazeret**\nSadece bugünü kapsayan saatlik mazeretlerinizi bildirin.\n\n✅ **Onay Süreci**\nTalebiniz onaylandığında rolünüz otomatik verilir.\n\n🔄 **Erken Dönüş**\nErken dönerseniz **İznimi Bitir** butonunu kullanın.\n\n👥 **Şu An İzinli Olanlar — ${izinliler.length} personel**\n${listText}`)
             .setFooter({ text: `${izinliler.length} personel izinde • Son güncelleme: ${formatDate()}` });
 
@@ -111,11 +111,11 @@ const STRIKE_KANAL_ID = process.env.STRIKE_KANAL_ID || '1475505351108591707';
 const IHRAC_KANAL_ID = process.env.IHRAC_KANAL_ID || '1478819151689679039';
 const IHRAC_ROL_ID = process.env.IHRAC_ROL_ID || '1475505209278075131';
 
-const KOMUT_LOG_KANAL_ID = process.env.KOMUT_LOG_KANAL_ID || '1528929952412733480'; 
-const SUNUCU_ID = process.env.SUNUCU_ID || '1224108385771716749'; 
-const YETKILI_ROL_ID = process.env.YETKILI_ROL_ID || '1528933720969580634'; 
-const IZINLI_ROL_ID = process.env.IZINLI_ROL_ID || '1525600296951222323'; 
-const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || '1528933597896114368'; 
+const KOMUT_LOG_KANAL_ID = process.env.KOMUT_LOG_KANAL_ID || 'BURAYA_KOMUT_LOG_KANALI_IDSINI_GIRIN'; 
+const SUNUCU_ID = process.env.SUNUCU_ID || 'BURAYA_SUNUCU_IDSINI_GIRIN'; 
+const YETKILI_ROL_ID = process.env.YETKILI_ROL_ID || 'BURAYA_ONAYLAYACAK_YETKILI_ROL_ID_GIRIN'; 
+const IZINLI_ROL_ID = process.env.IZINLI_ROL_ID || 'BURAYA_IZINLI_ROL_ID_GIRIN'; 
+const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || 'BURAYA_IZIN_LOG_KANAL_ID_GIRIN'; 
 
 const commands = [
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
@@ -128,7 +128,8 @@ const commands = [
     new SlashCommandBuilder().setName('mesai-ekle').setDescription('Personele mesai ekler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Saat').setRequired(true)),
     new SlashCommandBuilder().setName('mesai-sil').setDescription('Personelden mesai siler.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addNumberOption(o=>o.setName('saat').setDescription('Saat').setRequired(true)),
     new SlashCommandBuilder().setName('haftalik-mesai-bilgi').setDescription('Haftalık mesai bilgisi').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)),
-    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Toplam mesai bilgisi').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true))
+    new SlashCommandBuilder().setName('top-mesai-bilgi').setDescription('Toplam mesai bilgisi').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)),
+    new SlashCommandBuilder().setName('izin-bitir').setDescription('Belirtilen personelin iznini bitirir.').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true))
 ].map(c => c.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -232,8 +233,8 @@ client.on('messageCreate', async (message) => {
     }
     
     if (message.content === '!panel') {
-        const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle('Mission Row Police Department — Mesai Yönetim Sistemi')
-            .setDescription('MRPD mesai işlemlerinizi aşağıdaki butonlar aracılığıyla hızlıca gerçekleştirebilirsiniz.')
+        const embed = new EmbedBuilder().setColor(0x2b2d31).setTitle('Davis County Sheriff\'s Office — Mesai Yönetim Sistemi')
+            .setDescription('DCSO mesai işlemlerinizi aşağıdaki butonlar aracılığıyla hızlıca gerçekleştirebilirsiniz.')
             .addFields(
                 { name: '⚪ Mesai Gir', value: 'FiveM şehir ID\'nizi girerek aktif göreve başlayın.' },
                 { name: '⚪ Mesaiden Çık', value: 'Mevcut görevinizi sonlandırın ve sürenizi kaydedin.' },
@@ -256,7 +257,7 @@ client.on('messageCreate', async (message) => {
     if (message.content === '!izinpanel') {
         const embed = new EmbedBuilder()
             .setColor(0x2b2d31)
-            .setTitle('🚓 Mission Row Police Department — İzin Sistemi')
+            .setTitle('🚓 Davis County Sheriff\'s Office — İzin Sistemi')
             .setDescription(`🏖️ **İzin & Mazeret Paneli**\n\nAşağıdaki butonları kullanarak izin işlemlerinizi gerçekleştirebilirsiniz.\n\n👥 **Şu An İzinli Olanlar — Yükleniyor...**`)
             .setFooter({ text: `Son güncelleme: ${formatDate()}` });
 
@@ -277,6 +278,34 @@ client.on('interactionCreate', async (interaction) => {
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
         
+        if (commandName === 'izin-bitir') {
+            const kisi = options.getUser('kisi');
+            let uDoc = await User.findOne({ userId: kisi.id });
+            
+            if (!uDoc || !uDoc.leaveUntil) {
+                return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
+            }
+
+            uDoc.leaveUntil = null;
+            uDoc.leaveText = null;
+            await uDoc.save();
+
+            const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
+            if (guild) {
+                const member = await guild.members.fetch(kisi.id).catch(() => null);
+                if (member) await member.roles.remove(IZINLI_ROL_ID).catch(() => null);
+            }
+
+            const izinLog = await interaction.client.channels.fetch(IZIN_LOG_KANAL_ID).catch(() => null);
+            if (izinLog) {
+                const embedLog = new EmbedBuilder().setColor(0x3498db).setTitle('🔄 Yetkili Tarafından İzin Kapatma')
+                    .setDescription(`<@${kisi.id}> adlı personelin izni <@${interaction.user.id}> tarafından bitirildi.\n\n✅ **İzinli Memur** rolü alındı.`).setTimestamp();
+                await izinLog.send({ embeds: [embedLog] }).catch(() => {});
+            }
+            updateIzinPanel();
+            return interaction.reply({ content: `✅ <@${kisi.id}> adlı personelin izni başarıyla bitirildi.`, ephemeral: true });
+        }
+
         if (commandName === 'strike') {
             const kisi = options.getUser('kisi');
             const rol = options.getRole('rol');
