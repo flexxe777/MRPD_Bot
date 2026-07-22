@@ -373,18 +373,10 @@ client.on('interactionCreate', async (interaction) => {
             await uDoc.save();
 
             const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
-            // ... devamı ve diğer slash komutlar ...
-        }
-    } 
-    else if (interaction.isButton()) {
-        // --- Buraya da senin buton kodların (mesai_gir, mesai_cik vs.) gelecek ---
-    }
-
-}); // <-- BÜTÜN interactionCreate İŞLEMİ GERÇEKTEN EN SONDA BURADA KAPANIR!
-        if (commandName === 'izin-bitir') {
+           if (commandName === 'izin-bitir') {
             const kisi = options.getUser('kisi');
             let uDoc = await User.findOne({ userId: kisi.id });
-            
+
             if (!uDoc || !uDoc.leaveUntil) {
                 return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
             }
@@ -398,6 +390,21 @@ client.on('interactionCreate', async (interaction) => {
                 const member = await guild.members.fetch(kisi.id).catch(() => null);
                 if (member) await member.roles.remove(IZINLI_ROL_ID).catch(() => null);
             }
+
+            await interaction.reply({ content: `✅ <@${kisi.id}> adlı personelin izni bitirildi ve rolleri geri alındı.`, ephemeral: true });
+        }
+    }
+    else if (interaction.isButton()) {
+        // --- Buraya da senin buton kodların (mesai_gir, mesai_cik vs.) gelecek ---
+    }
+
+}); // <-- BÜTÜN interactionCreate İŞLEMİ GERÇEKTEN EN SONDA BURADA KAPANIR!
+    else if (interaction.isButton()) {
+        // --- Buraya da senin buton kodların (mesai_gir, mesai_cik vs.) gelecek ---
+    }
+
+ // <-- BÜTÜN interactionCreate İŞLEMİ GERÇEKTEN EN SONDA BURADA KAPANIR!
+        
 
             const izinLog = await interaction.client.channels.fetch(IZIN_LOG_KANAL_ID).catch(() => null);
             if (izinLog) {
