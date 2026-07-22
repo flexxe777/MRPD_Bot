@@ -757,51 +757,42 @@ client.on('interactionCreate', async (interaction) => {
                 interaction.reply({ content: '🔴 Mesai bitti.', ephemeral: true });
             }
        } else if (interaction.customId === 'mesai_gir') {
-    if (!userDoc || !userDoc.fivemId) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
-    
-    // --- Zaten mesaide mi kontrolü ---
-    if (userDoc.onDuty) {
-        return interaction.reply({ content: '❌ Zaten aktif bir mesainiz bulunuyor! Yeni mesai açmadan önce eskisini kapatın.', ephemeral: true });
+        if (!userDoc || !userDoc.fivemId) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
+        
+        if (userDoc.onDuty) {
+            return interaction.reply({ content: '❌ Zaten aktif bir mesainiz bulunuyor! Yeni mesai açmadan önce eskisini kapatın.', ephemeral: true });
+        }
+
+        userDoc.onDuty = true; 
+        userDoc.startTime = Date.now(); 
+        await userDoc.save();
+        
+        if (logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı.`);
+        await interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
+
+    } else if (interaction.customId === 'mesai_cik') {
+        if (!userDoc || !userDoc.onDuty) return interaction.reply({ content: '❌ Zaten aktif mesainiz yok!', ephemeral: true });
+        
+        const duration = Date.now() - userDoc.startTime;
+        userDoc.totalTime += duration; 
+        userDoc.weeklyTime += duration; 
+        userDoc.onDuty = false; 
+        await userDoc.save();
+        
+        if (logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi bitirdi.`);
+        await interaction.reply({ content: '🔴 Mesain bitti!', ephemeral: true });
+
+    } else if (interaction.customId === 'haftalik_mesai') {
+        await interaction.reply({ content: `📊 Bu hafta: ${formatTime(userDoc ? userDoc.weeklyTime : 0)}`, ephemeral: true });
+    } else if (interaction.customId === 'toplam_mesai') {
+        await interaction.reply({ content: `📊 Toplam: ${formatTime(userDoc ? userDoc.totalTime : 0)}`, ephemeral: true });
+    } else if (interaction.customId === 'id_guncelle') {
+        const modal = new ModalBuilder().setCustomId('id_modal').setTitle('FiveM ID Güncelle');
+        modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('new_id').setLabel('Yeni FiveM ID').setStyle(TextInputStyle.Short)));
+        await interaction.showModal(modal);
     }
 
-    userDoc.onDuty = true; 
-    userDoc.startTime = Date.now(); 
-    await userDoc.save();
-    
-    if (logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı.`);
-    await interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
-
-} else if (interaction.customId === 'mesai_cik') {
-    // --- Çıkış için mesaide olma kontrolü ---
-    if (!userDoc || !userDoc.onDuty) return interaction.reply({ content: '❌ Zaten aktif bir mesainiz yok!', ephemeral: true });
-    
-    const duration = Date.now() - userDoc.startTime;
-    userDoc.totalTime += duration; 
-    userDoc.weeklyTime += duration; 
-    userDoc.onDuty = false; 
-    await userDoc.save();
-    
-    if (logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi bitirdi.`);
-    await interaction.reply({ content: '🔴 Mesain bitti!', ephemeral: true });
-}
-    interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
-            if (!userDoc || !userDoc.onDuty) return interaction.reply({ content: '❌ Aktif mesain yok!', ephemeral: true });
-            const duration = Date.now() - userDoc.startTime;
-            userDoc.totalTime += duration; userDoc.weeklyTime += duration; userDoc.onDuty = false; await userDoc.save();
-            if(logKanal) logKanal.send(`🔴 <@${interaction.user.id}> mesaiyi bitirdi.`);
-            interaction.reply({ content: `✅ Mesain bitti!`, ephemeral: true });
-        } else if (interaction.customId === 'haftalik_mesai') {
-            interaction.reply({ content: `📅 Bu hafta: ${formatTime(userDoc ? userDoc.weeklyTime : 0)}`, ephemeral: true });
-        } else if (interaction.customId === 'toplam_mesai') {
-            interaction.reply({ content: `📊 Toplam: ${formatTime(userDoc ? userDoc.totalTime : 0)}`, ephemeral: true });
-        } else if (interaction.customId === 'id_guncelle') {
-            const modal = new ModalBuilder().setCustomId('id_modal').setTitle('FiveM ID Güncelle');
-            modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('new_id').setLabel('Yeni FiveM ID').setStyle(TextInputStyle.Short)));
-            await interaction.showModal(modal);
-        }
-    }}
-}); // <-- Normal parantez ve noktalı virgül eklendi
-});
+}); // <-- interactionCreate OLAYI SADECE BURADA VE TEK BİR KERE KAPANIR
 
 // --- ANTI-CRASH SİSTEMİ ---
 process.on('unhandledRejection', (reason) => console.log('❌ [Anti-Crash]', reason));
