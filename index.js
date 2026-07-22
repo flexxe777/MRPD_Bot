@@ -316,7 +316,7 @@ client.on('messageCreate', async message => {
     }
 });
 client.on('interactionCreate', async (interaction) => {
-  client.on('interactionCreate', async interaction => {
+
 
     // 1. --- KOMUT LOG SİSTEMİ ---
     if (interaction.isChatInputCommand()) {
@@ -790,9 +790,9 @@ client.on('interactionCreate', async (interaction) => {
         const modal = new ModalBuilder().setCustomId('id_modal').setTitle('FiveM ID Güncelle');
         modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('new_id').setLabel('Yeni FiveM ID').setStyle(TextInputStyle.Short)));
         await interaction.showModal(modal);
-    }
+    
 
-}); // <-- interactionCreate OLAYI SADECE BURADA VE TEK BİR KERE KAPANIR
+
 
 // --- ANTI-CRASH SİSTEMİ ---
 process.on('unhandledRejection', (reason) => console.log('❌ [Anti-Crash]', reason));
