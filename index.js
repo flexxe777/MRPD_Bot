@@ -285,6 +285,33 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
+  // Sadece slash komutlarını yakala
+    if (!interaction.isChatInputCommand()) return;
+
+    // --- KOMUT LOG SİSTEMİ ---
+    try {
+        const komutLogKanal = await client.channels.fetch(KOMUT_LOG_KANAL_ID).catch(() => null);
+        
+        if (komutLogKanal) {
+            // Komutun aldığı parametreleri (opsiyonları) yazıya çevirme
+            const options = interaction.options.data.map(opt => `${opt.name}: ${opt.value}`).join(', ') || 'Parametre yok';
+
+            const logEmbed = new EmbedBuilder()
+                .setColor(0x2b2d31) // Görünüme uygun koyu tema rengi
+                .setTitle('⌨️ Slash Komut Kullanıldı')
+                .addFields(
+                    { name: 'Kullanan', value: `<@${interaction.user.id}> (${interaction.user.username})`, inline: true },
+                    { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: true },
+                    { name: 'Komut', value: `**/${interaction.commandName}**\n\`${options}\``, inline: false }
+                )
+                .setTimestamp();
+
+            await komutLogKanal.send({ embeds: [logEmbed] });
+        }
+    } catch (error) {
+        console.error('Komut loglanırken hata oluştu:', error);
+    }
+    // -------------------------
     // --- SLASH KOMUTLARI ---
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
