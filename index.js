@@ -594,16 +594,18 @@ client.on('interactionCreate', async (interaction) => {
         }
 
         if (commandName === 'haftalik-mesai-bilgi') {
-            const kisi = options.getUser('kisi');
-            const uDoc = await User.findOne({ userId: kisi.id });
-            const time = uDoc ? uDoc.weeklyTime : 0;
-            if (commandName === 'top-mesai-bilgi') {
-            const kisi = options.getUser('kisi');
-            const uDoc = await User.findOne({ userId: kisi.id });
-            const time = uDoc ? uDoc.totalTime : 0;
-            return interaction.reply({ content: `📊 <@${kisi.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**`, ephemeral: true });
-        }
-    } // <-- BURADAKİ EKSİK KAPANIŞ PARANTEZİNİ EKLE
+        const kisi = options.getUser('kisi');
+        const uDoc = await User.findOne({ userId: kisi.id });
+        const time = uDoc ? uDoc.weeklyTime : 0;
+        return interaction.reply({ content: `📅 <@${kisi.id}> adlı personelin haftalık mesaisi: **${formatTime(time)}**`, ephemeral: true });
+    }
+
+    if (commandName === 'top-mesai-bilgi') {
+        const kisi = options.getUser('kisi');
+        const uDoc = await User.findOne({ userId: kisi.id });
+        const time = uDoc ? uDoc.totalTime : 0;
+        return interaction.reply({ content: `📊 <@${kisi.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**`, ephemeral: true });
+    }
 
     // --- MODAL (FORM) GÖNDERİMLERİ ---
     if (interaction.isModalSubmit()) {
