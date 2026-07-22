@@ -490,18 +490,16 @@ client.on('interactionCreate', async (interaction) => {
             let basarisiz = 0;
 
             for (const [memberId, member] of targetMembers) {
-                try {
-                    await member.send({ 
-                        content: `**${interaction.guild.name}** sunucusundan bir duyurunuz var:`, 
-                        embeds: [embed] 
-                   } catch (err) {
-        basarisiz++;
+        try {
+            await member.send({
+                content: `**${interaction.guild.name}** sunucusundan bir duyurunuz var:`,
+                embeds: [embed]
+            });
+            basarili++;
+        } catch (err) {
+            basarisiz++;
+        }
     }
-                    basarili++;
-                } catch (error) {
-                    basarisiz++;
-                }
-            }
 
             await interaction.channel.send({ content: `${rol} rolündeki üyelere duyuru iletildi.`, embeds: [embed] });
 
