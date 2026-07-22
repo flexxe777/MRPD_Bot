@@ -309,7 +309,7 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
             console.error('Komut loglanırken hata oluştu:', error);
         }
-    }
+    });
     // -------------------------
 
     // --- BURADAN AŞAĞISI SENİN ESKİ BUTON VE MODAL KODLARIN (Dokunma) ---
