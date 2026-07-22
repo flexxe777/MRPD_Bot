@@ -29,17 +29,17 @@ const {
     ButtonBuilder, ButtonStyle, SlashCommandBuilder, REST, Routes,
     ModalBuilder, TextInputBuilder, TextInputStyle, PermissionFlagsBits 
 } = require('discord.js');
+const { Client, GatewayIntentBits, Partials, /* diğer modüller... */ } = require('discord.js');
 
-const client = new Client({ 
+const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds, 
-        GatewayIntentBits.GuildMessages, 
-        GatewayIntentBits.MessageContent, 
-        GatewayIntentBits.DirectMessages,
-        GatewayIntentBits.GuildMembers 
-    ] 
+        GatewayIntentBits.Guilds,
+        GatewayIntentBits.GuildMembers,
+        GatewayIntentBits.GuildMessages,
+        // ... (burada sende olan diğer intentler kalmaya devam etsin) ...
+        GatewayIntentBits.GuildVoiceStates // <--- MÜLAKAT SİSTEMİ İÇİN BUNU EKLEMEN ŞART
+    ]
 });
-
 let aktifKadroMsg = null;
 let izinPanelMsg = null;
 const afkTimeouts = new Map();
