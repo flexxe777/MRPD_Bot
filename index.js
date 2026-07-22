@@ -116,8 +116,10 @@ const SUNUCU_ID = process.env.SUNUCU_ID || '1224108385771716749';
 const YETKILI_ROL_ID = process.env.YETKILI_ROL_ID || '1528933720969580634'; 
 const IZINLI_ROL_ID = process.env.IZINLI_ROL_ID || '1525600296951222323'; 
 const IZIN_LOG_KANAL_ID = process.env.IZIN_LOG_KANAL_ID || '1528933597896114368'; 
-
+const MULAKAT_KANAL_ID = process.env.MULAKAT_KANAL_ID || '1475505308292878336'; 
+const MULAKAT_YETKILISI_ROL_ID = process.env.MULAKAT_YETKILISI_ROL_ID || '1528933720969580634';
 const commands = [
+  
     new SlashCommandBuilder().setName('strike').setDescription('Personel strike').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
     new SlashCommandBuilder().setName('ihrac').setDescription('Personel ihraç').addUserOption(o=>o.setName('kisi').setDescription('Kişi').setRequired(true)).addStringOption(o=>o.setName('sebep').setDescription('Sebep').setRequired(true)),
     new SlashCommandBuilder().setName('duyuru-gonder').setDescription('Belirli bir role DM olarak duyuru atar.').addRoleOption(o=>o.setName('rol').setDescription('Rol').setRequired(true)).addStringOption(o=>o.setName('baslik').setDescription('Başlık').setRequired(true)).addStringOption(o=>o.setName('mesaj').setDescription('İçerik').setRequired(true)),
@@ -709,5 +711,39 @@ client.on('interactionCreate', async (interaction) => {
 process.on('unhandledRejection', (reason) => console.log('❌ [Anti-Crash]', reason));
 process.on('uncaughtException', (err) => console.log('❌ [Anti-Crash]', err));
 process.on('uncaughtExceptionMonitor', (err) => console.log('❌ [Anti-Crash]', err));
+client.on('voiceStateUpdate', async (oldState, newState) => {
+    // Kullanıcı sadece belirlediğimiz kanala giriş yaptığında tetiklensin
+    // (Susturma/sağırlaştırma işlemlerinde tekrar tetiklenmemesi için kontrol)
+    if (newState.channelId === MULAKAT_KANAL_ID && oldState.channelId !== MULAKAT_KANAL_ID) {
+        try {
+            const member = newState.member;
+            if (member.user.bot) return; // Bota bildirim atma
+
+            const guild = newState.guild;
+            await guild.members.fetch(); 
+            const yetkiliRol = guild.roles.cache.get(MULAKAT_YETKILISI_ROL_ID);
+            
+            if (!yetkiliRol) return console.log('❌ Mülakat yetkilisi rolü bulunamadı.');
+
+            const embed = new EmbedBuilder()
+                .setColor(0x3498db) // Görseldeki mavi çizgi rengi
+                .setTitle('🤝 Mülakat Bekleme Odasında Biri Var!')
+                .setDescription(`Mülakat kanalına bir kullanıcı giriş yaptı.\n\n**Mülakat Bekleyen Kişi:** <@${member.id}> - ${member.user.username}`)
+                .setFooter({ text: 'DCSO Mülakat Bildirim Sistemi' });
+
+            // Mülakat yetkilisi rolündeki herkese DM olarak gönder
+            yetkiliRol.members.forEach(async (yetkili) => {
+                if (!yetkili.user.bot) {
+                    await yetkili.send({ embeds: [embed] }).catch(() => {
+                        // Eğer kullanıcının DM'i kapalıysa hata vermemesi için catch boş bırakıldı
+                    });
+                }
+            });
+
+        } catch (error) {
+            console.error('Mülakat bildirim sistemi hatası:', error);
+        }
+    }
+});
 
 client.login(TOKEN);
