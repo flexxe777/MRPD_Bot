@@ -757,11 +757,17 @@ client.on('interactionCreate', async (interaction) => {
                 interaction.reply({ content: '🔴 Mesai bitti.', ephemeral: true });
             }
         } else if (interaction.customId === 'mesai_gir') {
-            if (!userDoc || !userDoc.fivemId) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
-            userDoc.onDuty = true; userDoc.startTime = Date.now(); await userDoc.save();
-            if(logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı.`);
-            interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
-        } else if (interaction.customId === 'mesai_cik') {
+    if (!userDoc || !userDoc.fivemId) return interaction.reply({ content: '❌ `!kayıt <ID>` yap!', ephemeral: true });
+    
+    // --- EKLENEN KISIM: Zaten mesaide mi kontrolü ---
+    if (userDoc.onDuty) {
+        return interaction.reply({ content: '❌ Zaten aktif bir mesainiz bulunuyor! Yeni mesai açmadan önce eskisini kapatın.', ephemeral: true });
+    }
+    // ------------------------------------------------
+
+    userDoc.onDuty = true; userDoc.startTime = Date.now(); await userDoc.save();
+    if (logKanal) logKanal.send(`🟢 <@${interaction.user.id}> mesaiye başladı.`);
+    interaction.reply({ content: '✅ Mesai başladı.', ephemeral: true });
             if (!userDoc || !userDoc.onDuty) return interaction.reply({ content: '❌ Aktif mesain yok!', ephemeral: true });
             const duration = Date.now() - userDoc.startTime;
             userDoc.totalTime += duration; userDoc.weeklyTime += duration; userDoc.onDuty = false; await userDoc.save();
