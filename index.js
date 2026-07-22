@@ -307,12 +307,35 @@ client.on('interactionCreate', async (interaction) => {
             console.error('Komut loglanırken hata oluştu:', error);
         }
 
+        client.on('interactionCreate', async (interaction) => {
+
+    // 1. --- KOMUT LOG SİSTEMİ ---
+    if (interaction.isChatInputCommand()) {
+        try {
+            const komutLogKanal = await client.channels.fetch(KOMUT_LOG_KANAL_ID).catch(() => null);
+            if (komutLogKanal) {
+                const options = interaction.options.data.map(opt => `${opt.name}: ${opt.value}`).join(', ') || 'Parametre yok';
+                const logEmbed = new EmbedBuilder()
+                    .setColor(0x2b2d31)
+                    .setTitle('🟫 Slash Komut Kullanıldı')
+                    .addFields(
+                        { name: 'Kullanan', value: `<@${interaction.user.id}> (${interaction.user.username})`, inline: true },
+                        { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: true },
+                        { name: 'Komut', value: `**/${interaction.commandName}**\n\`${options}\``, inline: false }
+                    )
+                    .setTimestamp();
+                await komutLogKanal.send({ embeds: [logEmbed] });
+            }
+        } catch (error) {
+            console.error('Komut loglanırken hata oluştu:', error);
+        }
+
         // 2. --- SLASH KOMUTLAR VE İŞLEMLER ---
         const { commandName, options } = interaction;
 
         if (commandName === 'izin-bitir') {
             const kisi = options.getUser('kisi');
-            let uDoc = await User.findOne({ userId: kisi.id });
+            let uDoc = await User.findOne({ userId: kisi.id }); // Artık güvenle async içinde çalışacak!
 
             if (!uDoc || !uDoc.leaveUntil) {
                 return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
@@ -323,10 +346,16 @@ client.on('interactionCreate', async (interaction) => {
             await uDoc.save();
 
             const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
-            // ... devamı ...
+            // ... diğer işlemlerin ...
         }
     }
-});
+    
+    // 3. --- BUTONLAR VE DİĞER ETKİLEŞİMLER ---
+    else if (interaction.isButton()) {
+        // buton kodların buraya gelecek
+    }
+
+}); // <-- Bütün event'i kapatan TEK ve SON kapanış parantezi burası olacak!
     // 2. --- SLASH KOMUTLAR VE BUTONLAR ---
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
