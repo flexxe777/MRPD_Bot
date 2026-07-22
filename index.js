@@ -314,9 +314,8 @@ client.on('messageCreate', async message => {
             await message.reply('❌ Kayıt yapılırken veritabanında bir hata oluştu.');
         }
     }
-});
-client.on('interactionCreate', async (interaction) => {
 
+client.on('interactionCreate', async (interaction) => {
 
     // 1. --- KOMUT LOG SİSTEMİ ---
     if (interaction.isChatInputCommand()) {
