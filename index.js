@@ -283,7 +283,38 @@ client.on('messageCreate', async (message) => {
         updateIzinPanel();
     }
 });
+// --- YAZILI MESAJ KOMUTLARI (!kayıt) ---
+client.on('messageCreate', async message => {
+    // Botların mesajlarını ve !kayıt ile başlamayan mesajları yok say
+    if (message.author.bot || !message.content.startsWith('!kayıt')) return;
 
+    const args = message.content.trim().split(/ +/);
+    const command = args.shift().toLowerCase();
+
+    if (command === '!kayıt') {
+        const fivemId = args[0];
+
+        // ID girilmediyse uyarı ver
+        if (!fivemId) {
+            return message.reply('❌ Lütfen FiveM ID\'nizi belirtin.\n**Kullanım:** `!kayıt <FiveM_ID>` (Örn: `!kayıt 12345`)');
+        }
+
+        try {
+            // Veritabanına (MongoDB/Mongoose) kaydetme işlemi
+            // (Kendi User modeline göre burayı düzenleyebilirsin)
+            await User.findOneAndUpdate(
+                { userId: message.author.id },
+                { fivemId: fivemId },
+                { upsert: true, new: true }
+            );
+
+            await message.reply(`✅ FiveM ID'niz başarıyla **${fivemId}** olarak kaydedildi!`);
+        } catch (error) {
+            console.error('Kayıt hatası:', error);
+            await message.reply('❌ Kayıt yapılırken veritabanında bir hata oluştu.');
+        }
+    }
+});
 client.on('interactionCreate', async (interaction) => {
   client.on('interactionCreate', async interaction => {
 
