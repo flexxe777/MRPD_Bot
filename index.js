@@ -285,32 +285,34 @@ client.on('messageCreate', async (message) => {
 });
 
 client.on('interactionCreate', async (interaction) => {
-  // Sadece slash komutlarını yakala
-    if (!interaction.isChatInputCommand()) return;
+  client.on('interactionCreate', async interaction => {
 
     // --- KOMUT LOG SİSTEMİ ---
-    try {
-        const komutLogKanal = await client.channels.fetch(KOMUT_LOG_KANAL_ID).catch(() => null);
-        
-        if (komutLogKanal) {
-            // Komutun aldığı parametreleri (opsiyonları) yazıya çevirme
-            const options = interaction.options.data.map(opt => `${opt.name}: ${opt.value}`).join(', ') || 'Parametre yok';
+    // Sadece slash komutları logla, ama diğer işlemleri (butonları) engelleme!
+    if (interaction.isChatInputCommand()) {
+        try {
+            const komutLogKanal = await client.channels.fetch(KOMUT_LOG_KANAL_ID).catch(() => null);
+            if (komutLogKanal) {
+                const options = interaction.options.data.map(opt => `${opt.name}: ${opt.value}`).join(', ') || 'Parametre yok';
+                const logEmbed = new EmbedBuilder()
+                    .setColor(0x2b2d31)
+                    .setTitle('⌨️ Slash Komut Kullanıldı')
+                    .addFields(
+                        { name: 'Kullanan', value: `<@${interaction.user.id}> (${interaction.user.username})`, inline: true },
+                        { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: true },
+                        { name: 'Komut', value: `**/${interaction.commandName}**\n\`${options}\``, inline: false }
+                    )
+                    .setTimestamp();
 
-            const logEmbed = new EmbedBuilder()
-                .setColor(0x2b2d31) // Görünüme uygun koyu tema rengi
-                .setTitle('⌨️ Slash Komut Kullanıldı')
-                .addFields(
-                    { name: 'Kullanan', value: `<@${interaction.user.id}> (${interaction.user.username})`, inline: true },
-                    { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: true },
-                    { name: 'Komut', value: `**/${interaction.commandName}**\n\`${options}\``, inline: false }
-                )
-                .setTimestamp();
-
-            await komutLogKanal.send({ embeds: [logEmbed] });
+                await komutLogKanal.send({ embeds: [logEmbed] });
+            }
+        } catch (error) {
+            console.error('Komut loglanırken hata oluştu:', error);
         }
-    } catch (error) {
-        console.error('Komut loglanırken hata oluştu:', error);
     }
+    // -------------------------
+
+    // --- BURADAN AŞAĞISI SENİN ESKİ BUTON VE MODAL KODLARIN (Dokunma) ---
     // -------------------------
     // --- SLASH KOMUTLARI ---
     if (interaction.isChatInputCommand()) {
