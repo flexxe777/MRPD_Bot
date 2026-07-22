@@ -799,7 +799,8 @@ client.on('interactionCreate', async (interaction) => {
             modal.addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('new_id').setLabel('Yeni FiveM ID').setStyle(TextInputStyle.Short)));
             await interaction.showModal(modal);
         }
-    }
+    }}
+}); // <-- Normal parantez ve noktalı virgül eklendi
 });
 
 // --- ANTI-CRASH SİSTEMİ ---
