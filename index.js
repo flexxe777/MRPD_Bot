@@ -341,27 +341,31 @@ client.on('interactionCreate', async (interaction) => {
         }
     }
 
-    // 2. --- SLASH KOMUTLARIN VE BUTONLARIN (Sanki log yokmuş gibi buradan devam ediyor) ---
+    // 2. --- SLASH KOMUTLAR VE BUTONLAR ---
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
 
         if (commandName === 'izin-bitir') {
             const kisi = options.getUser('kisi');
-            // ... geri kalan izin-bitir ve diğer slash komut kodların ...
+            let uDoc = await User.findOne({ userId: kisi.id });
+
+            if (!uDoc || !uDoc.leaveUntil) {
+                return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
+            }
+
+            uDoc.leaveUntil = null;
+            uDoc.leaveText = null;
+            await uDoc.save();
+
+            const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
+            // ... devamı ve diğer slash komutlar ...
         }
-        
-        // ... diğer komutların ve buton kontrollerin (isButton, isModalSubmit vs.) ...
+    } 
+    else if (interaction.isButton()) {
+        // --- Buraya da senin buton kodların (mesai_gir, mesai_cik vs.) gelecek ---
     }
 
-}); // <-- BÜTÜN interactionCreate İŞLEMİ EN SONDA BURADA KAPANIYOR!
-    // -------------------------
-
-    // --- BURADAN AŞAĞISI SENİN ESKİ BUTON VE MODAL KODLARIN (Dokunma) ---
-    // -------------------------
-    // --- SLASH KOMUTLARI ---
-    if (interaction.isChatInputCommand()) {
-        const { commandName, options } = interaction;
-        
+}); // <-- BÜTÜN interactionCreate İŞLEMİ GERÇEKTEN EN SONDA BURADA KAPANIR!
         if (commandName === 'izin-bitir') {
             const kisi = options.getUser('kisi');
             let uDoc = await User.findOne({ userId: kisi.id });
