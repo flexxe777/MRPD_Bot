@@ -597,17 +597,14 @@ client.on('interactionCreate', async (interaction) => {
             const kisi = options.getUser('kisi');
             const uDoc = await User.findOne({ userId: kisi.id });
             const time = uDoc ? uDoc.weeklyTime : 0;
-            return interaction.reply({ content: `📅 <@${kisi.id}> adlı personelin haftalık mesaisi: **${formatTime(time)}**`, ephemeral: true });
-        }
-
-        if (commandName === 'top-mesai-bilgi') {
+            if (commandName === 'top-mesai-bilgi') {
             const kisi = options.getUser('kisi');
             const uDoc = await User.findOne({ userId: kisi.id });
             const time = uDoc ? uDoc.totalTime : 0;
             return interaction.reply({ content: `📊 <@${kisi.id}> adlı personelin toplam mesaisi: **${formatTime(time)}**`, ephemeral: true });
         }
-    }
-    
+    } // <-- BURADAKİ EKSİK KAPANIŞ PARANTEZİNİ EKLE
+
     // --- MODAL (FORM) GÖNDERİMLERİ ---
     if (interaction.isModalSubmit()) {
         const guild = await client.guilds.fetch(SUNUCU_ID).catch(() => null);
