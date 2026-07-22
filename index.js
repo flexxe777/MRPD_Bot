@@ -494,7 +494,9 @@ client.on('interactionCreate', async (interaction) => {
                     await member.send({ 
                         content: `**${interaction.guild.name}** sunucusundan bir duyurunuz var:`, 
                         embeds: [embed] 
-                    });
+                   } catch (err) {
+        basarisiz++;
+    }
                     basarili++;
                 } catch (error) {
                     basarisiz++;
