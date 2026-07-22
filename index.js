@@ -417,7 +417,7 @@ client.on('interactionCreate', async (interaction) => {
             }
             updateIzinPanel();
             return interaction.reply({ content: `✅ <@${kisi.id}> adlı personelin izni başarıyla bitirildi.`, ephemeral: true });
-        });
+        
 
         if (commandName === 'strike') {
             const kisi = options.getUser('kisi');
