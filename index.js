@@ -335,7 +335,7 @@ client.on('interactionCreate', async (interaction) => {
 
         if (commandName === 'izin-bitir') {
             const kisi = options.getUser('kisi');
-            let uDoc = await User.findOne({ userId: kisi.id }); // Artık güvenle async içinde çalışacak!
+            let uDoc = await User.findOne({ userId: kisi.id });
 
             if (!uDoc || !uDoc.leaveUntil) {
                 return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
@@ -346,17 +346,20 @@ client.on('interactionCreate', async (interaction) => {
             await uDoc.save();
 
             const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
-            // ... diğer işlemlerin ...
+            if (guild) {
+                const member = await guild.members.fetch(kisi.id).catch(() => null);
+                if (member) await member.roles.remove(IZINLI_ROL_ID).catch(() => null);
+            }
+
+            await interaction.reply({ content: `✅ <@${kisi.id}> adlı personelin izni bitirildi ve rolleri geri alındı.`, ephemeral: true });
         }
     }
-    
-    // 3. --- BUTONLAR VE DİĞER ETKİLEŞİMLER ---
     else if (interaction.isButton()) {
-        // buton kodların buraya gelecek
+        // --- Buraya buton kodların gelecek ---
     }
 
-}); // <-- Bütün event'i kapatan TEK ve SON kapanış parantezi burası olacak!
-    // 2. --- SLASH KOMUTLAR VE BUTONLAR ---
+}); // <-- BÜTÜN interactionCreate İŞLEMİNİ KAPATAN TEK VE SON PARANTEZ BURASI OLACAK!
+    
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
 
