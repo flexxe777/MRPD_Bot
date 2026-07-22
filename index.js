@@ -857,9 +857,11 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
             });
 
         } catch (error) {
-            console.error('Mülakat bildirim sistemi hatası:', error);
-      
-   }
-}
+        console.error('Mülakat bildirim sistemi hatası:', error);
+    }
+} // <-- 833. satırdaki if koşulunun eksik kapanışı buraya gelecek!
 
+}); // client.on event'inin kapanışı
+
+client.login(TOKEN);
 client.login(TOKEN);
