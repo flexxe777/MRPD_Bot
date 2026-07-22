@@ -405,7 +405,7 @@ client.on('interactionCreate', async (interaction) => {
     else if (interaction.isButton()) {
         // --- Buraya da senin buton kodların (mesai_gir, mesai_cik vs.) gelecek ---
     }
-});
+}
  // <-- BÜTÜN interactionCreate İŞLEMİ GERÇEKTEN EN SONDA BURADA KAPANIR!
         
 
