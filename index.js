@@ -859,7 +859,7 @@ client.on('voiceStateUpdate', async (oldState, newState) => {
         } catch (error) {
             console.error('Mülakat bildirim sistemi hatası:', error);
       
-    }
-});
+   }
+}
 
 client.login(TOKEN);
