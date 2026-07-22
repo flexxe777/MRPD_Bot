@@ -294,21 +294,39 @@ client.on('interactionCreate', async (interaction) => {
                 const options = interaction.options.data.map(opt => `${opt.name}: ${opt.value}`).join(', ') || 'Parametre yok';
                 const logEmbed = new EmbedBuilder()
                     .setColor(0x2b2d31)
-                    .setTitle('⌨️ Slash Komut Kullanıldı')
+                    .setTitle('🟫 Slash Komut Kullanıldı')
                     .addFields(
                         { name: 'Kullanan', value: `<@${interaction.user.id}> (${interaction.user.username})`, inline: true },
                         { name: 'Kanal', value: `<#${interaction.channelId}>`, inline: true },
                         { name: 'Komut', value: `**/${interaction.commandName}**\n\`${options}\``, inline: false }
                     )
                     .setTimestamp();
-
                 await komutLogKanal.send({ embeds: [logEmbed] });
             }
         } catch (error) {
             console.error('Komut loglanırken hata oluştu:', error);
         }
-    }
 
+        // 2. --- SLASH KOMUTLAR VE İŞLEMLER ---
+        const { commandName, options } = interaction;
+
+        if (commandName === 'izin-bitir') {
+            const kisi = options.getUser('kisi');
+            let uDoc = await User.findOne({ userId: kisi.id });
+
+            if (!uDoc || !uDoc.leaveUntil) {
+                return interaction.reply({ content: '❌ Bu personelin aktif bir izni bulunmuyor.', ephemeral: true });
+            }
+
+            uDoc.leaveUntil = null;
+            uDoc.leaveText = null;
+            await uDoc.save();
+
+            const guild = await interaction.client.guilds.fetch(SUNUCU_ID).catch(() => null);
+            // ... devamı ...
+        }
+    }
+});
     // 2. --- SLASH KOMUTLAR VE BUTONLAR ---
     if (interaction.isChatInputCommand()) {
         const { commandName, options } = interaction;
