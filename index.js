@@ -287,8 +287,7 @@ client.on('messageCreate', async (message) => {
 client.on('interactionCreate', async (interaction) => {
   client.on('interactionCreate', async interaction => {
 
-    // --- KOMUT LOG SİSTEMİ ---
-    // Sadece slash komutları logla, ama diğer işlemleri (butonları) engelleme!
+    // 1. --- KOMUT LOG SİSTEMİ ---
     if (interaction.isChatInputCommand()) {
         try {
             const komutLogKanal = await client.channels.fetch(KOMUT_LOG_KANAL_ID).catch(() => null);
@@ -309,7 +308,21 @@ client.on('interactionCreate', async (interaction) => {
         } catch (error) {
             console.error('Komut loglanırken hata oluştu:', error);
         }
-    });
+    }
+
+    // 2. --- SLASH KOMUTLARIN VE BUTONLARIN (Sanki log yokmuş gibi buradan devam ediyor) ---
+    if (interaction.isChatInputCommand()) {
+        const { commandName, options } = interaction;
+
+        if (commandName === 'izin-bitir') {
+            const kisi = options.getUser('kisi');
+            // ... geri kalan izin-bitir ve diğer slash komut kodların ...
+        }
+        
+        // ... diğer komutların ve buton kontrollerin (isButton, isModalSubmit vs.) ...
+    }
+
+}); // <-- BÜTÜN interactionCreate İŞLEMİ EN SONDA BURADA KAPANIYOR!
     // -------------------------
 
     // --- BURADAN AŞAĞISI SENİN ESKİ BUTON VE MODAL KODLARIN (Dokunma) ---
